@@ -1,12 +1,13 @@
 """
-Startup Idea Finder — Streamlit UI
-Faz 2: Keşfet modu + Kategori modu + Rakip Analizi
+Startup Idea Finder — Streamlit UI (V2)
+Faz 7: Rapor geçmişi, export, grafikler, agent streaming
 """
 
 import sys
 import os
 import time
 import random
+from datetime import datetime
 
 import streamlit as st
 
@@ -21,8 +22,12 @@ st.set_page_config(
     page_title="Startup Idea Finder",
     page_icon="🔍",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="auto",
 )
+
+# Session state init
+if "report_history" not in st.session_state:
+    st.session_state.report_history = []
 
 # ──────────────────────────────────────────────
 # CSS — PREMIUM UI
@@ -207,6 +212,15 @@ else:
     with stat_cols[3]:
         st.metric("📂 Toplam Kayıt", total_models + total_apps)
 
+    # Kaynak dağılımı grafiği
+    if source_counts:
+        import pandas as pd
+        src_df = pd.DataFrame(
+            {"Kaynak": list(source_counts.keys()), "Kayıt": list(source_counts.values())}
+        ).set_index("Kaynak")
+        with st.expander("📊 Kaynak Dağılımı", expanded=False):
+            st.bar_chart(src_df)
+
 # ──────────────────────────────────────────────
 # FORM
 # ──────────────────────────────────────────────
@@ -219,7 +233,7 @@ with col1:
 
     mode = st.radio(
         "Nasıl arama yapmak istiyorsun?",
-        options=["🔥 Keşfet (Otomatik)", "🎯 Kategori Seç"],
+        options=["🔥 Keşfet (Otomatik)", "🎯 Kategori Seç", "🔄 Rakip Analiz", "🧠 Derin Analiz"],
         label_visibility="collapsed",
     )
 
@@ -232,8 +246,9 @@ with col1:
         "developer tools", "marketing", "analytics",
     ]
     category = random.choice(DISCOVER_CATEGORIES)  # butona basınca yenilenir
+    target_startup = ""
 
-    if mode == "🎯 Kategori Seç":
+    if mode in ["🎯 Kategori Seç", "🧠 Derin Analiz"]:
         category = st.selectbox(
             "Alan seç",
             options=[
@@ -257,6 +272,8 @@ with col1:
                 "computer vision":   "👁️  Computer Vision",
             }.get(x, x),
         )
+    elif mode == "🔄 Rakip Analiz":
+        target_startup = st.text_input("Girişim/Uygulama Adı (örn: Lumen5)", value="Jasper AI")
 
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -318,92 +335,239 @@ if run_btn:
             }
             st.info(f"🎲 Rastgele keşif alanı: **{category_labels.get(category, category)}**")
 
-        # Adım göstergesi
+        # Adım göstergesi (streaming)
         progress = st.progress(0, text="⏳ Başlatılıyor...")
-        progress.progress(10, text="🔍 Trend modeller aranıyor...")
-        try:
-            from agent.idea_agent import idea_agent
+        status_box = st.empty()
 
-            progress.progress(20, text="🤖 Trend modeller ChromaDB'den çekiliyor...")
+        try:
             t0 = time.time()
-            result = idea_agent.invoke({
-                "user_category": category,
-                "trending_models": [],
-                "matching_apps":   [],
-                "competitor_complaints": [],
-                "complaint_clusters": "",
-                "store_app_ids": [],
-                "store_reviews": [],
-                "store_clusters": "",
-                "final_report":    "",
-                "error":           None,
-            })
+            result = None
+
+            if mode in ["🔥 Keşfet (Otomatik)", "🎯 Kategori Seç"]:
+                from agent.idea_agent import idea_agent
+                NODE_LABELS = {
+                    "fetch_trending_models": (12, "🔍 Trend modeller aranıyor..."),
+                    "match_to_market": (25, "🎯 Pazarla eşleştiriliyor..."),
+                    "scrape_competitor_reviews": (40, "❌ Rakip şikayetleri toplanıyor..."),
+                    "cluster_complaints": (50, "📊 Şikayetler kümeleniyor..."),
+                    "find_store_app": (60, "📱 Store uygulamaları aranıyor..."),
+                    "scrape_store_reviews": (70, "⭐ Kullanıcı yorumları çekiliyor..."),
+                    "cluster_store_problems": (75, "🔬 Kullanıcı acıları analiz ediliyor..."),
+                    "competition_matrix": (82, "🥊 Rekabet matrisi hazırlanıyor..."),
+                    "generate_opportunity": (88, "💡 Fırsat raporu üretiliyor (3 aşama)..."),
+                    "validate_idea": (95, "✅ Fikir doğrulanıyor ve skorlanıyor..."),
+                }
+                for event in idea_agent.stream({
+                    "user_category": category,
+                    "trending_models": [],
+                    "matching_apps":   [],
+                    "competitor_complaints": [],
+                    "complaint_clusters": "",
+                    "store_app_ids": [],
+                    "store_reviews": [],
+                    "store_clusters": "",
+                    "competition_matrix": "",
+                    "final_report":    "",
+                    "validation_details": "",
+                    "error":           None,
+                }):
+                    node_name = list(event.keys())[0]
+                    result = event[node_name]
+                    pct, label = NODE_LABELS.get(node_name, (50, f"⚙️ {node_name}..."))
+                    progress.progress(pct, text=label)
+            
+            elif mode == "🔄 Rakip Analiz":
+                from agent.reverse_agent import reverse_agent
+                NODE_LABELS = {
+                    "analyze_startup": (20, f"🔍 '{target_startup}' analiz ediliyor..."),
+                    "find_competitors": (40, "👥 Rakipler bulunuyor..."),
+                    "scrape_all_complaints": (65, "❌ Rakip şikayetleri toplanıyor..."),
+                    "find_matching_ai_model": (80, "🤖 Uygun disruptive AI modelleri aranıyor..."),
+                    "generate_disruption_report": (95, "🚀 Disruption Raporu yazılıyor..."),
+                }
+                for event in reverse_agent.stream({
+                    "target_startup": target_startup,
+                    "startup_analysis": "",
+                    "competitors": [],
+                    "competitor_complaints": [],
+                    "complaint_clusters": "",
+                    "matching_models": [],
+                    "final_report": "",
+                    "error": None,
+                }):
+                    node_name = list(event.keys())[0]
+                    result = event[node_name]
+                    pct, label = NODE_LABELS.get(node_name, (50, f"⚙️ {node_name}..."))
+                    progress.progress(pct, text=label)
+
+            elif mode == "🧠 Derin Analiz":
+                st.info("🕒 Bu mod çoklu (paralel) web araması ve detaylı akıl yürütme içerdiği için 1-2 dakika sürebilir.")
+                from agent.deep_agent import deep_agent
+                NODE_LABELS = {
+                    "init_research": (10, "📚 Pazar verileri (Model & App) toplanıyor..."),
+                    "brainstorm_angles": (25, "🌀 3 farklı niş Micro-SaaS açısı türetiliyor..."),
+                    "deep_web_research": (50, "🌐 Her açı için Tavily paralel web araştırması yapılıyor..."),
+                    "competitor_deep_dive": (70, "🥊 Rakiplerin zayıf yönlerine derin dalış yapılıyor..."),
+                    "reasoning_synthesis": (85, "🧠 Veriler sentezleniyor, en kârlı açı seçiliyor..."),
+                    "write_investment_memo": (95, "📝 Investment Memo (Yatırım Raporu) yazılıyor..."),
+                }
+                for event in deep_agent.stream({
+                    "target_category": category,
+                    "trending_models": [],
+                    "known_apps": [],
+                    "brainstormed_angles": [],
+                    "web_research_results": [],
+                    "competitor_insights": "",
+                    "selected_angle": "",
+                    "investment_memo": "",
+                    "error": None,
+                }):
+                    node_name = list(event.keys())[0]
+                    result = event[node_name]
+                    pct, label = NODE_LABELS.get(node_name, (50, f"⚙️ {node_name}..."))
+                    progress.progress(pct, text=label)
+                    
             elapsed = time.time() - t0
             progress.progress(100, text="✅ Tamamlandı!")
 
+            if result is None or result.get("error"):
+                st.error(f"❌ Agent hatası: {result.get('error', 'Sonuç dönmedi.')}")
+                st.stop()
+
         except Exception as e:
-            st.error(f"❌ Agent hatası: {e}")
+            st.error(f"❌ Beklenmeyen hata: {e}")
             st.stop()
 
     # ── Sonuçlar ──
     st.success(f"✅ Tamamlandı ({elapsed:.1f}s)")
 
+    # Rapor geçmişine ekle
+    st.session_state.report_history.append({
+        "category": category,
+        "report": result.get("final_report", ""),
+        "timestamp": datetime.now().strftime("%H:%M:%S"),
+        "elapsed": f"{elapsed:.1f}s",
+    })
+
+    # Validation Details
+    if result.get("validation_details"):
+        st.markdown(result["validation_details"])
+
     # Rapor
-    st.markdown("### 💡 Fırsat Raporu")
-    st.markdown(
-        f'<div class="report-box">{result["final_report"]}</div>',
-        unsafe_allow_html=True,
+    if mode == "🧠 Derin Analiz":
+        st.markdown("### 🧠 Investment Memo (Derin Analiz)")
+        st.markdown(
+            f'<div class="report-box" style="border-left: 4px solid #8b5cf6;">{result.get("investment_memo", "")}</div>',
+            unsafe_allow_html=True,
+        )
+        export_text = result.get("investment_memo", "")
+    else:
+        st.markdown("### 💡 Fırsat Raporu")
+        st.markdown(
+            f'<div class="report-box">{result.get("final_report", "")}</div>',
+            unsafe_allow_html=True,
+        )
+        export_text = result.get("final_report", "")
+        
+        if result.get("competition_matrix"):
+            st.markdown("### 🥊 Rekabet Matrisi")
+            st.markdown(result["competition_matrix"])
+            export_text += "\n\n### 🥊 Rekabet Matrisi\n" + result["competition_matrix"]
+
+    # Markdown export butonu
+    if result.get("validation_details") and mode != "🧠 Derin Analiz":
+        export_text += "\n\n" + result["validation_details"]
+        
+    st.download_button(
+        label="📥 Raporu İndir (.md)",
+        data=export_text,
+        file_name=f"{'deep_memo' if mode == '🧠 Derin Analiz' else 'firsat'}_{category.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M')}.md",
+        mime="text/markdown",
     )
 
     # Debug bilgileri (expander)
     with st.expander("🔍 Detay: Bulunan Modeller, Uygulamalar ve Şikayetler"):
-        col_m, col_a = st.columns(2)
-        with col_m:
-            st.markdown("**🤖 Trend AI Modeller**")
-            for m in result.get("trending_models", []):
-                st.markdown(f"- [{m['name']}]({m['url']}) — `{m['category']}`")
-
-        with col_a:
-            st.markdown("**💰 Eşleşen Uygulamalar**")
-            for a in result.get("matching_apps", []):
-                st.markdown(
-                    f"- [{a['name']}]({a['url']}) — MRR: `{a['mrr'] or '?'}` ({a['source']})"
-                )
-
-        # Rakip Şikayetleri (Faz 2)
-        complaints = result.get("competitor_complaints", [])
-        if complaints:
+        if mode == "🧠 Derin Analiz":
+            st.markdown("**🧠 Üretilen 3 Alternatif Hipotez**")
+            for a in result.get("brainstormed_angles", []):
+                st.markdown(f"- {a}")
             st.markdown("---")
-            st.markdown(f"**❌ Rakip Şikayetleri ({len(complaints)} kaynak)**")
-            for c in complaints:
-                st.markdown(
-                    f"- **[{c['app']}]** ({c['source']}): {c['title'][:80]}...\n"
-                    f"  _{c['content'][:150]}_"
-                )
+            st.markdown("**🌐 Tavily Deep Dive Çıkarımları**")
+            st.markdown(result.get("competitor_insights", ""))
+            
+        elif mode in ["🔥 Keşfet (Otomatik)", "🎯 Kategori Seç", "🔄 Rakip Analiz"]:
+            col_m, col_a = st.columns(2)
+            with col_m:
+                st.markdown("**🤖 Trend AI Modeller**")
+                for m in result.get("trending_models", []):
+                    st.markdown(f"- [{m['name']}]({m['url']}) — `{m['category']}`")
 
-        clusters = result.get("complaint_clusters", "")
-        if clusters:
-            st.markdown("---")
-            st.markdown("**📊 Kümelenmiş Şikayetler**")
-            st.markdown(clusters)
+            with col_a:
+                st.markdown("**💰 Eşleşen Uygulamalar**")
+                for a in result.get("matching_apps", []):
+                    st.markdown(
+                        f"- [{a['name']}]({a['url']}) — MRR: `{a['mrr'] or '?'}` ({a['source']})"
+                    )
 
-        # Store Yorumları (Faz 3)
-        store_reviews = result.get("store_reviews", [])
-        if store_reviews:
-            st.markdown("---")
-            st.markdown(f"**📱 Store Yorumları ({len(store_reviews)} yorum, 1-2 yıldız)**")
-            for r in store_reviews[:5]:
-                stars = '⭐' * r.get('score', 1)
-                thumbs = f" (👍 {r['thumbs_up']})" if r.get('thumbs_up') else ""
-                st.markdown(
-                    f"- **{r['app']}** {stars}{thumbs}: _{r['text'][:150]}_"
-                )
+            complaints = result.get("competitor_complaints", [])
+            if complaints:
+                st.markdown("---")
+                st.markdown(f"**❌ Rakip Şikayetleri ({len(complaints)} kaynak)**")
+                for c in complaints:
+                    st.markdown(
+                        f"- **[{c['app']}]** ({c['source']}): {c['title'][:80]}...\n"
+                        f"  _{c['content'][:150]}_"
+                    )
 
-        store_clusters = result.get("store_clusters", "")
-        if store_clusters:
+            clusters = result.get("complaint_clusters", "")
+            if clusters:
+                st.markdown("---")
+                st.markdown("**📊 Kümelenmiş Şikayetler**")
+                st.markdown(clusters)
+
+            store_reviews = result.get("store_reviews", [])
+            if store_reviews:
+                st.markdown("---")
+                st.markdown(f"**📱 Store Yorumları ({len(store_reviews)} yorum, 1-2 yıldız)**")
+                for r in store_reviews[:5]:
+                    stars = '⭐' * r.get('score', 1)
+                    thumbs = f" (👍 {r['thumbs_up']})" if r.get('thumbs_up') else ""
+                    st.markdown(
+                        f"- **{r['app']}** {stars}{thumbs}: _{r['text'][:150]}_"
+                    )
+
+            store_clusters = result.get("store_clusters", "")
+            if store_clusters:
+                st.markdown("---")
+                st.markdown("**📊 Kullanıcı Acıları (Store Yorumlarından)**")
+                st.markdown(store_clusters)
+
+        elif mode == "🔄 Rakip Analiz":
+            st.markdown(f"**🎯 Hedef Analizi:** {result.get('startup_analysis', '')}")
             st.markdown("---")
-            st.markdown("**📊 Kullanıcı Acıları (Store Yorumlarından)**")
-            st.markdown(store_clusters)
+            st.markdown(f"**👥 Rakipler:** {', '.join(result.get('competitors', []))}")
+            st.markdown("---")
+            st.markdown("**🤖 Eşleşen Yıkıcı AI Modelleri**")
+            for m in result.get("matching_models", []):
+                st.markdown(f"- **{m.get('name')}**: {m.get('description', '')[:150]}...")
+            st.markdown("---")
+            complaints = result.get("competitor_complaints", [])
+            st.markdown(f"**❌ Toplanan Şikayetler ({len(complaints)} adet)**")
+            for c in complaints[:10]:
+                st.markdown(f"- **[{c['app']}]**: {c['content'][:150]}...")
+
+# ──────────────────────────────────────────────
+# SIDEBAR: Rapor Geçmişi
+# ──────────────────────────────────────────────
+
+with st.sidebar:
+    st.markdown("### 📜 Rapor Geçmişi")
+    if st.session_state.report_history:
+        for i, h in enumerate(reversed(st.session_state.report_history)):
+            with st.expander(f"{h['category']} — {h['timestamp']} ({h['elapsed']})"):
+                st.markdown(h["report"][:500] + "..." if len(h["report"]) > 500 else h["report"])
+    else:
+        st.caption("Henüz rapor yok. Yukarıdan arama yapın.")
 
 # ──────────────────────────────────────────────
 # FOOTER
@@ -411,7 +575,7 @@ if run_btn:
 
 st.markdown("---")
 st.markdown(
-    "<center><small style='color:#475569'>Startup Idea Finder · Agentic RAG · "
+    "<center><small style='color:#475569'>Startup Idea Finder V2 · Agentic RAG · "
     "<a href='https://github.com/tarikmenguc/Startup_Idea_Finder' style='color:#7c3aed'>GitHub</a></small></center>",
     unsafe_allow_html=True,
 )

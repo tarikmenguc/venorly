@@ -12,6 +12,8 @@ import sys
 import time
 import subprocess
 import argparse
+import json
+import shutil
 from datetime import datetime
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -77,6 +79,53 @@ def run_pipeline():
     results = {}
     for script, label in steps:
         results[label] = run_step(script, label)
+
+    # 8.2 Trend Algılama: Snapshot Kaydet ve Trendleri Dön
+    history_dir = os.path.join(BASE_DIR, "data", "history")
+    os.makedirs(history_dir, exist_ok=True)
+    
+    current_week = datetime.now().isocalendar()[1]
+    current_year = datetime.now().isocalendar()[0]
+    snapshot_file = os.path.join(history_dir, f"{current_year}-W{current_week:02d}.json")
+    
+    # Mevcut veriyi birleştirip snapshot al
+    models_file = os.path.join(BASE_DIR, "data", "models_raw.json")
+    apps_file = os.path.join(BASE_DIR, "data", "apps_raw.json")
+    
+    snapshot_data = {"models": [], "apps": []}
+    if os.path.exists(models_file):
+        with open(models_file, "r", encoding="utf-8") as f:
+            snapshot_data["models"] = json.load(f)
+    if os.path.exists(apps_file):
+        with open(apps_file, "r", encoding="utf-8") as f:
+            snapshot_data["apps"] = json.load(f)
+            
+    with open(snapshot_file, "w", encoding="utf-8") as f:
+        json.dump(snapshot_data, f, ensure_ascii=False, indent=2)
+    log(f"[Trend] Snapshot kaydedildi: {snapshot_file}")
+    
+    # Bir önceki haftayı bul
+    prev_week = current_week - 1
+    prev_year = current_year
+    if prev_week == 0:
+        prev_week = 52
+        prev_year -= 1
+        
+    prev_snapshot = os.path.join(history_dir, f"{prev_year}-W{prev_week:02d}.json")
+    
+    if os.path.exists(prev_snapshot):
+        # agent.trend_detector'ü import edip çalıştır
+        sys.path.insert(0, BASE_DIR)
+        from agent.trend_detector import detect_trends
+        trends = detect_trends(snapshot_file, prev_snapshot)
+        
+        trends_file = os.path.join(history_dir, f"{current_year}-W{current_week:02d}_trends.json")
+        with open(trends_file, "w", encoding="utf-8") as f:
+            json.dump(trends, f, ensure_ascii=False, indent=2)
+            
+        log(f"[Trend] {len(trends.get('rising_models', []))} model ve {len(trends.get('rising_apps', []))} app artış gösterdi.")
+    else:
+        log("[Trend] Karşılaştırma için önceki haftanın verisi bulunamadı.")
 
     # Ozet
     log("-" * 50)

@@ -69,12 +69,23 @@ def scrape_replicate_api() -> list[dict]:
     """Replicate API endpoint'inden modelleri çeker."""
     print("[Replicate] API endpoint deneniyor...")
 
+    # .env'den API token oku (opsiyonel)
+    from dotenv import load_dotenv
+    load_dotenv()
+    api_token = os.getenv("REPLICATE_API_TOKEN", "")
+
     all_models = []
     url = "https://api.replicate.com/v1/models"
     params = {"sort": "run_count", "limit": 50}
 
+    # Token varsa authenticated request
+    headers = {**HEADERS}
+    if api_token:
+        headers["Authorization"] = f"Bearer {api_token}"
+        print("[Replicate] ✅ API token bulundu, authenticated request.")
+
     try:
-        resp = requests.get(url, params=params, headers=HEADERS, timeout=15)
+        resp = requests.get(url, params=params, headers=headers, timeout=15)
         if resp.status_code == 200:
             data = resp.json()
             for m in data.get("results", []):
@@ -90,7 +101,7 @@ def scrape_replicate_api() -> list[dict]:
                     "description": description[:200],
                     "category": infer_category(name, description),
                     "run_count": run_count,
-                    "downloads": run_count,  # uyumluluk için
+                    "downloads": run_count,
                     "likes": 0,
                     "url": f"https://replicate.com/{owner}/{name}",
                     "source": "replicate",

@@ -135,25 +135,34 @@ def parse_html(html: str) -> list[dict]:
             cols = metrics_grid.find_all("div", recursive=False)
             # Kolon 1: Revenue (30d)
             if len(cols) >= 1:
-                rev_val = cols[0].select_one("p.font-bold, p.font-mono")
+                rev_val = cols[0].select_one("p.font-bold, p.font-mono, span.font-bold")
                 if rev_val:
                     revenue_text = rev_val.get_text(strip=True)
                 # Growth (span içinde ↑/↓ yüzde)
-                growth_span = cols[0].find("span")
+                growth_span = cols[0].find("span", class_=lambda c: c and ("text-green" in c or "text-red" in c))
+                if not growth_span:
+                    growth_span = cols[0].find("span")
                 if growth_span:
                     growth_text = growth_span.get_text(strip=True)
 
             # Kolon 2: Asking Price
             if len(cols) >= 2:
-                price_val = cols[1].select_one("p.font-bold, p.font-mono")
+                price_val = cols[1].select_one("p.font-bold, p.font-mono, span.font-bold")
                 if price_val:
                     asking_price_text = price_val.get_text(strip=True)
 
             # Kolon 3: Multiple
             if len(cols) >= 3:
-                mult_val = cols[2].select_one("p.font-bold, p.font-mono")
+                mult_val = cols[2].select_one("p.font-bold, p.font-mono, span.font-bold")
                 if mult_val:
                     multiple_text = mult_val.get_text(strip=True)
+
+        # Fallback: grid yoksa, kartın tüm metninden MRR çıkar
+        if not revenue_text:
+            card_text = card.get_text(" ", strip=True)
+            mrr_match = re.search(r'\$([\d,.]+)\s*([KkMm]?)(?:\s*/\s*(?:mo|month))?', card_text)
+            if mrr_match:
+                revenue_text = mrr_match.group(0).strip()
 
         # --- Kategori inferansı (site kategorisi yoksa) ---
         final_category = site_category if site_category else infer_category(name + " " + description)
