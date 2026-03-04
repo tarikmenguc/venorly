@@ -1,0 +1,29 @@
+# Ortam
+.env
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Vektör DB (büyük, local kalmalı)
+chroma_db/
+
+# Ham veri (opsiyonel — commit etmek istersen kaldır)
+data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Debug / Geçici dosyalar
+scratch*.py
+trustmrr_debug.html
+data/trustmrr_snapshot.html
+data/scheduler.log

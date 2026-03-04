@@ -1,0 +1,17 @@
+langchain-groq
+langchain-chroma
+langchain-huggingface
+huggingface_hub
+streamlit>=1.38.0
+pandas>=2.1.0
+requests
+beautifulsoup4
+schedule
+google-play-scraper
+app-store-scraper
+python-dotenv
+langsmith
+sentence-transformers
+tavily-python
+playwright
+langgraph
