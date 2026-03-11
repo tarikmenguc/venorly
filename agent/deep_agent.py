@@ -11,6 +11,8 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE_DIR)
 
 from agent.idea_agent import get_llm, get_models_store, get_apps_store
+from scrapers.reality_intel import check_upwork_rss, scan_reddit_desperation, scrape_github_gui_requests 
+from agent.buyer_matcher import BuyerMatcherAgent
 
 # ──────────────────────────────────────────────
 # STATE DEFINITION
@@ -24,6 +26,9 @@ class DeepAgentState(TypedDict):
     competitor_insights: str
     selected_angle: str
     investment_memo: str
+    buyer_leads: List[dict]
+    automation_signals: List[dict]
+    product_gaps: List[dict]
     error: Optional[str]
 
 tavily = TavilySearchResults(max_results=3)
@@ -68,17 +73,47 @@ def brainstorm_angles_node(state: DeepAgentState) -> DeepAgentState:
     models_text = ", ".join([m.get("name", "") for m in state["trending_models"][:5]])
     apps_text = ", ".join([a.get("name", "") for a in state["known_apps"][:5]])
     
-    prompt = f"""Hedef Kategori: {state['target_category']}
-Pazardaki AI Modelleri: {models_text}
-Mevcut Kazanan Uygulamalar: {apps_text}
+    # n8n/Make.com otomasyon istihbaratını prompt'a ekle
+    auto_signals = state.get("automation_signals", [])
+    auto_text = ""
+    if auto_signals:
+        auto_lines = []
+        for s in auto_signals[:10]:
+            auto_lines.append(f"- [{s.get('source')}] {s.get('title', '')[:100]}")
+        auto_text = "\n".join(auto_lines)
+    
+    # Product Hunt gap verilerini prompt'a ekle
+    gap_signals = state.get("product_gaps", [])
+    gap_text = ""
+    if gap_signals:
+        gap_lines = []
+        for g in gap_signals[:8]:
+            gap_lines.append(f"- [{g.get('source')}] {g.get('title', '')[:120]}")
+        gap_text = "\n".join(gap_lines)
+    
+    prompt = f"""KULLANICININ SEÇTİĞİ ANA KATEGORİ: {state['target_category']}
+    
+Pazardaki İlgili AI Modelleri: {models_text if models_text else "Bu nişte kullanılabilecek top-tier AI modellerini düşün."}
+Mevcut Kazanan Uygulamalar: {apps_text if apps_text else "Bu piyasadaki mevcut yazılımların yetersizliğini (boşluğu) hayal et."}
+{f'''
+OTOMASYON İSTİHBARATI (n8n/Zapier/Make.com Forumlarından):
+{auto_text}
+ÖNEMLİ: Yukarıdaki otomasyon talepleri, GERÇEK İNSANLARIN gerçekten otomasyona çevirmek istediği ama yapamadığı işlerdir.''' if auto_text else ''}
+{f'''
+PRODUCT HUNT BOŞLUK ANALİZİ (Mevcut Ürünlerin Zayıf Noktaları):
+{gap_text}
+ÖNEMLİ: Bu boşluklar, kullanıcıların mevcut ürünlerden memnun olmadığı noktaları gösterir. Burası altın madeni.''' if gap_text else ''}
 
-Sen bir Micro-SaaS kuluçka merkezi yöneticisisin. Bu verilerden yola çıkarak, pazarın boşluklarına yönelik 3 tamamen farklı ve spesifik 'Saldırı Açısı' (Hypothesis/Angle) oluştur.
-Her bir açı, farklı bir dar niş kitleyi ve farklı bir kullanım alanını hedeflemeli.
+Sen Y Combinator'dan acımasız bir yatırımcısın. Görevin KULLANICININ SEÇTİĞİ ANA KATEGORİ ({state['target_category']}) odağında 3 farklı Micro-SaaS 'Saldırı Açısı' (Hypothesis) yazmak.
+
+KATI KURALLAR (Friction Economy):
+1. B2C (Tüketici/İzleyici) fikirleri KESİNLİKLE YASAKTIR. Sadece para ödeme gücü olan Profesyoneller, C-Level, Freelancer'lar, Ajanslar veya geliri olan İçerik Üreticileri hedeflenmeli.
+2. "Vitamin" Reddedilecek: Pazardaki "Kanal analizi", "Dashboard" gibi jenerik fikirleri ÇÖPE AT. Sadece insanların manuel olarak 5-10 saatini çalan belirli bir angarya işi (Painkiller) çözen, tek tıklamalık AI otomasyonları üret.
 
 Format (kesinlikle bu formata uy):
-Açı 1: [açıklama]
-Açı 2: [açıklama]
-Açı 3: [açıklama]"""
+Açı 1: [Niş Hedef Kitle] - [Manuel Acı Noktası] - [AI Otomasyon Çözümü]
+Açı 2: [Niş Hedef Kitle] - [Manuel Acı Noktası] - [AI Otomasyon Çözümü]
+Açı 3: [Niş Hedef Kitle] - [Manuel Acı Noktası] - [AI Otomasyon Çözümü]"""
 
     try:
         response = get_llm(temp=0.9).invoke([HumanMessage(content=prompt)]).content
@@ -156,9 +191,13 @@ def reasoning_synthesis_node(state: DeepAgentState) -> DeepAgentState:
     angles = "\n".join([f"- {a}" for a in state["brainstormed_angles"]])
     insights = state["competitor_insights"]
     
-    prompt = f"""Sen Y Combinator'dan deneyimli bir yatırımcı ve mühendissin. 
-Aşağıdaki 3 Micro-SaaS hipotezini ve rakip pazar analizini oku.
-Mantıklı düşün ve sadece EN uygulanabilir, pazar giriş bariyeri düşük ve kârlı olan TEK BİR fikri seç.
+    prompt = f"""Sen Y Combinator'dan acımasız bir yatırımcısın. 
+Aşağıdaki 3 B2B/B2Creator Micro-SaaS hipotezini ve rakip pazar analizini dikkatle oku.
+
+Kritik Değerlendirme Filtresi:
+1. Pazar büyüklüğü umrumda değil, "Ödeme İsteği (Willingness to Pay)" umrumda. Hangi kitle bu araca en çok para öder?
+2. "Zaman Tasarrufu (Time Saved)": Hangisi manuel bir işi en fazla süreden en kısa süreye indiriyor?
+3. Sadece "Ağrı Kesici" olanı (kanayan bir iş yarasını çözen) TEK BİR Fikri seç. "Vitamin" (alsam iyi olur) araçlarını reddet.
 
 Hipotezler:
 {angles}
@@ -166,7 +205,7 @@ Hipotezler:
 Pazar Analizi (Tavily):
 {insights}
 
-Seçtiğin açı, seçme nedenin ve pazara hücum (go-to-market) stratejin nedir? Kısaca açıkla."""
+Sadece en kârlı TEK açıyı seç. Seçtiğin açı, seçme nedenin (ödeme isteği kanıtı) ve ilk 10 müşteriye ulaşma (Go-To-Market) stratejin nedir? Kısaca açıkla."""
 
     try:
         # Burada özellikle temp=0 kullanıyoruz ki reasoning en yüksek seviyede olsun
@@ -195,10 +234,10 @@ Kullanılabilecek AI Modelleri:
 {models}
 
 Format:
-# 🧠 Deep Research Analizi: [Odaklanılan Ürün/Niş]
+# 🧠 Deep Research Analizi: {decision[:40]}...
 
 ## 1. Executive Summary
-[Hızlı özet]
+[Hızlı özet - Kullanıcının {state['target_category']} alanı ile tam entegrasyonu vurgula]
 
 ## 2. Thesis (Yatırım Tezi)
 [Neden bu alanda bir boşluk var?]
@@ -224,6 +263,65 @@ Format:
         return {**state, "error": f"Memo hatası: {e}"}
 
 # ──────────────────────────────────────────────
+# NODE 7: Find Buyer Leads (Sütunlar & Matchev)
+# ──────────────────────────────────────────────
+def find_buyer_leads_node(state: DeepAgentState) -> DeepAgentState:
+    if state.get("error"): return state
+    print("[DeepResearch] Node 7 → find_buyer_leads (Müşteriler Bulunuyor...)")
+    
+    ideas = state.get("selected_angle", "")
+    target = state.get("target_category", "")
+    
+    raw_leads = []
+    
+    # 1. Upwork/Fiverr RSS (Kısılmış aramalar ile)
+    print("  [DeepResearch] Upwork taranıyor...")
+    try:
+        jobs = check_upwork_rss(target, limit=3)
+        raw_leads.extend(jobs)
+    except Exception as e:
+         print(f"  [DeepResearch] ⚠️ Upwork Hatası: {e}")
+         
+    # 2. Reddit Çaresizlik Forumları
+    print("  [DeepResearch] Reddit taranıyor...")
+    # Basit bir kelime eşleştirme yapalım
+    subreddits = ["accounting", "lawyers", "realtors"] 
+    if "design" in target.lower(): subreddits = ["graphicdesign", "UI_Design"]
+    elif "code" in target.lower(): subreddits = ["learnprogramming", "webdev"]
+    elif "marketing" in target.lower(): subreddits = ["marketing", "SEO"]
+    
+    try:
+        reddit_leads = scan_reddit_desperation(subreddits, limit=2)
+        raw_leads.extend(reddit_leads)
+    except Exception as e:
+        print(f"  [DeepResearch] ⚠️ Reddit Hatası: {e}")
+        
+    # 3. GitHub UI
+    print("  [DeepResearch] GitHub taranıyor...")
+    try:
+        github_leads = scrape_github_gui_requests("ai")
+        # Listeyi dönüştürelim
+        for gl in github_leads[:2]:
+            raw_leads.append({
+                "source": "GitHub",
+                "title": gl["opportunity"],
+                "url": gl["example_issue_url"],
+                "desc": f"Repo: {gl['repo_name']} | Stars: {gl['repo_stars']} | GUI Demands: {gl['gui_demand_count']}"
+            })
+    except Exception as e:
+        print(f"  [DeepResearch] ⚠️ GitHub Hatası: {e}")
+        
+    # 4. Alıcı Eşleştirme (DM Pitch)
+    print("  [DeepResearch] LLM ile Soğuk Satış Şablonları (DM) yazılıyor...")
+    try:
+        matcher = BuyerMatcherAgent()
+        matched_leads = matcher.process_leads(raw_leads[:10], saas_idea=ideas)
+        return {**state, "buyer_leads": matched_leads}
+    except Exception as e:
+        print(f"  [DeepResearch] ⚠️ Matcher Hatası: {e}")
+        return {**state, "buyer_leads": raw_leads}
+
+# ──────────────────────────────────────────────
 # GRAPH CONFIGURATION
 # ──────────────────────────────────────────────
 def build_deep_graph():
@@ -235,6 +333,7 @@ def build_deep_graph():
     graph.add_node("competitor_deep_dive", competitor_deep_dive_node)
     graph.add_node("reasoning_synthesis", reasoning_synthesis_node)
     graph.add_node("write_investment_memo", write_investment_memo_node)
+    graph.add_node("find_buyer_leads", find_buyer_leads_node)
     
     graph.set_entry_point("init_research")
     graph.add_edge("init_research", "brainstorm_angles")
@@ -242,7 +341,8 @@ def build_deep_graph():
     graph.add_edge("deep_web_research", "competitor_deep_dive")
     graph.add_edge("competitor_deep_dive", "reasoning_synthesis")
     graph.add_edge("reasoning_synthesis", "write_investment_memo")
-    graph.add_edge("write_investment_memo", END)
+    graph.add_edge("write_investment_memo", "find_buyer_leads")
+    graph.add_edge("find_buyer_leads", END)
     
     return graph.compile()
 
@@ -252,7 +352,7 @@ if __name__ == "__main__":
     from dotenv import load_dotenv
     load_dotenv()
     
-    cat = sys.argv[1] if len(sys.argv) > 1 else "freelance designers"
+    cat = sys.argv[1] if len(sys.argv) > 1 else "data extraction"
     print(f"=== DEEP RESEARCH TEST: {cat} ===")
     
     for event in deep_agent.stream({
@@ -264,11 +364,12 @@ if __name__ == "__main__":
         "competitor_insights": "",
         "selected_angle": "",
         "investment_memo": "",
+        "buyer_leads": [],
         "error": None
     }):
         node_name = list(event.keys())[0]
         print(f"--> Tamamlandı: {node_name}")
         
     print("\n\n" + "="*50)
-    final_output = event[node_name].get("investment_memo") or event[node_name].get("error")
-    print(final_output)
+    final_output = event[node_name].get("buyer_leads")
+    print(f"Bulunan Hazır Alıcı Sayısı: {len(final_output) if final_output else 0}")
