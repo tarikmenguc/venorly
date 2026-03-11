@@ -10,7 +10,7 @@ from typing import TypedDict, List, Optional
 
 from dotenv import load_dotenv
 from langchain_chroma import Chroma
-from langchain_huggingface import HuggingFaceEmbeddings
+# HuggingFaceEmbeddings kaldırıldı — merkezî lib/embeddings.py kullanılıyor
 from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage
 from langgraph.graph import StateGraph, END
@@ -26,19 +26,12 @@ load_dotenv()
 # ──────────────────────────────────────────────
 
 CHROMA_DIR = os.path.join(BASE_DIR, "chroma_db")
-EMBEDDING_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
+# Merkezî embedding modülü (Gemini Embedding 2)
+from lib.embeddings import get_embeddings
 
-_embeddings  = None
 _models_store = None
 _apps_store   = None
 _llm          = None
-
-
-def get_embeddings():
-    global _embeddings
-    if _embeddings is None:
-        _embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
-    return _embeddings
 
 
 def get_models_store():
@@ -315,19 +308,22 @@ Para kazanan uygulamalar:
     # AŞAMA 1: 3 farklı fikir üret (yaratıcı)
     # ========================================
     print("[Agent]   Aşama 1/3: 3 fikir üretiliyor...")
-    prompt1 = f"""Sen bir Micro-SaaS strateji uzmanısın.
-Amacımız milyar dolarlık devleri kopyalamak DEĞİL, dar nişlere odaklanan aylık $1K-$50K kazanan küçük SaaS fikirleri bulmak.
+    prompt1 = f"""KULLANICININ SEÇTİĞİ ANA KATEGORİ: "{state['user_category']}"
+Sen bir B2B Micro-SaaS strateji uzmanısın. Görevin, milyonlarca kullanıcıya değil, aylık 29$-99$ ödeyecek spesifik profesyonellere (B2B veya Para Kazanan İçerik Üreticilerine) yönelik 3 FARKLI Micro-SaaS fikri üretmek.
 
-{data_context}
+KATI KURALLAR (Friction Economy):
+1. B2C (Son kullanıcı/Tüketici/İzleyici) fikirleri YASAKTIR. (Örn: "Kullanıcıların izleyeceği video bulma uygulaması" -> YASAK. "YouTuber'ların 10 saatlik videodan otomatik B-Roll çıkarma aracı" -> İZİNLİ).
+2. "Vitamin Değil, Ağrı Kesici" kuralı: "Daha iyi analiz yapar" gibi yuvarlak ve jenerik laflar KULLANMA. İnsanın her gün manuel olarak saatlerini alan spesifik bir angarya işi (Sürtünme Noktası) otomatize et!
+3. AI Arbitrajı: Sadece bir dashboard yapma. Arkada mutlaka AI API'lerini kullanıp süreci 1 tıklamaya indirecek bir çözüm sun.
 
-3 FARKLI Micro-SaaS fikri üret. Her biri:
-- Farklı bir niş hedef kitleye yönelik olmalı
-- Farklı bir AI modeli kullanmalı
-- Farklı bir iş modeline sahip olmalı
-- 2-3 cümle ile özetlenmiş olmalı
+Trend AI Modelleri:
+{models_text if models_text.strip() != "(Model verisi bulunamadı)" else "(Kategoriye uygun spesifik AI modelleri düşün.)"}
 
-Format:
-1. [Fikir başlığı] | Model: [model] | Niş: [kitle] | [kısa açıklama]
+Para Kazanan Uygulamalar (Rakipler):
+{apps_text if apps_text.strip() != "(Uygulama verisi bulunamadı)" else "(Rakiplerin eksik bıraktığı bir açığı düşün.)"}
+
+Bu 3 KATI KURALA uyarak, listeyi aşağıdaki formatta ver:
+1. [Fikir Başlığı] | Model: [model] | Hedef Müşteri: [Spesifik Niş] | Acı: [Kısaca manuel süreç] | Çözüm: [Kısaca otomasyon]
 2. ...
 3. ...
 
@@ -349,16 +345,16 @@ Sadece listeyi yaz."""
     # AŞAMA 2: En iyisini seç (analitik)
     # ========================================
     print("[Agent]   Aşama 2/3: En iyi fikir seçiliyor...")
-    prompt2 = f"""Aşağıda 3 Micro-SaaS fikri var. Hangisi en gerçekçi ve kârlı?
+    prompt2 = f"""Aşağıda 3 Micro-SaaS fikri var. Hangisi en ACI ÇEKEN kitleye sahip ve satılması en kolay olanı?
 
 {ideas_raw}
 
-Deerlendirme kriterleri:
-- Pazar büyüklüğü ve para ödeme isteği
-- Teknik fizibilite (model uygunluğu)
-- Rekabet düzeyi ({"şikayet verileri var" if all_complaints else "genel değerlendirme"})
+Değerlendirme Kriterleri (Friction Economy):
+- "Pazar Büyüklüğü" UMRUMDA DEĞİL. "Ödeme İsteği (Willingness to Pay)" umrumda. (İnsanlar bu angaryadan ne kadar nefret ediyor?)
+- Zaman Tasarrufu (Time Saved): Bu araç günde/haftada kaç saat kurtarıyor?
+- "Vitamin"leri (Dashboard, Analiz) reddet. En güçlü "Ağrı Kesici"yi (Tek tıkla otomasyon) seç.
 
-Seçimin: [numara] — Neden: [2 cümle]
+Seçimin: [numara] — Neden: [2 cümle acımasız yatırımcı mantığı]
 
 Sadece seçimi ve nedenini yaz."""
 
@@ -375,46 +371,43 @@ Sadece seçimi ve nedenini yaz."""
     # AŞAMA 3: Detaylı rapor (yapılandırılmış)
     # ========================================
     print("[Agent]   Aşama 3/3: Detaylı rapor üretiliyor...")
-    prompt3 = f"""Seçilen fikir:
+    prompt3 = f"""Seçilen B2B/Painkiller fikri:
 {selected_idea}
 
 Fikirler:
 {ideas_raw}
 
-Veri kaynağı:
+Veri Kaynakları:
 {data_context}
 
-Bu fikri aşağıdaki formatta DETAYLI bir rapor olarak yaz (Türkçe, emoji kullan).
-Her bölümde SOMUT VERİ kullan, jenerik cümlelerden kaçın.
+Bu fikri aşağıdaki formatta DETAYLI bir Friction Economy raporu olarak yaz (Türkçe, süslü laflar olmadan, net ve acımasız).
+Her bölümde SOMUT VERİ kullan, jenerik "iş süreçlerini hızlandırır" gibi cümlelerden kaçın. Direkt süre/para belirt.
 
-🔥 NİŞ FIRSAT: [Çok spesifik kısa fikir başlığı]
+🔥 NİŞ FIRSAT: [Çok spesifik, sürtünmeyi ortadan kaldıran başlık]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📦 Kullanılacak Model: [Model adı + neden bu model uygun]
-🎯 Odaklanılacak Niş: [Spesifik hedef kitle]
+📦 Kullanılacak AI Modeli: [Model adı + Süreci nasıl 1 tıklamaya indireceği]
+🎯 Odaklanılacak B2B Niş: [Spesifik hedef kitle - Örn: Sadece Düğün Fotoğrafçıları]
 
-💰 Pazar Mantığı:
-   [Yukarıdaki uygulamalardan örneklerle kitlenin para ödeme eğilimini kanıtla]
+💰 Ödeme İsteği (Willingness to Pay) Mantığı:
+   [Hedef kitlenin bu işi manuel yaparken haftada kaybettiği saatleri hesapla, neden ayda $49 vereceklerini matematiksel olarak kanıtla]
 
-❌ Rakip Boşlukları:
-   [{"Şikayet verilerinden somut boşlukları listele" if all_complaints else "Potansiyel zayıf noktalar"}]
+❌ Rakiplerin "Vitamin" Olma Sebebi:
+   [Veri varsa: {all_complaints[:200]}... Veri yoksa genel piyasadaki araçların neden sadece "dashboard" verdiğini ama işi çözmediğini açıklayarak boşluğu belirt]
 
 ⏱️ Tahmini Geliştirme Süresi:
    MVP: [X hafta] | Full Ürün: [Y ay]
-   [Neden bu süre, teknik adımlar neler]
 
 🔧 Teknik Zorluk: [1-5 ⭐]
-   [API kullanımı mı, fine-tuning mi, entegrasyon adımları]
+   [API entegrasyonu, veri işleme zorlukları]
 
-🚀 İlk 100 Müşteri Stratejisi:
-   [Hangi subreddit, hangi topluluk, nasıl ulaşılır]
+🚀 İlk 100 Müşteri (GTM) Stratejisi:
+   [Hangi subreddit'e, Hangi Upwork kategorisine veya Discord sunucusuna gidip direkt DM atılacak? Reklam yasak.]
 
 💲 Fiyatlandırma Önerisi:
-   Free: [ne içerir]
-   Pro ($X/ay): [ne içerir]
-   Business ($Y/ay): [ne içerir]
+   [Aylık abonelik bedeli tahmini ve nedeni]
 
 💡 Fırsat Özeti:
-   [Tam olarak ne yapılacak, 2-3 cümle]
+   [Tam olarak ne yapılacak, 2 cümle]
 
 🔗 [Model URL]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
