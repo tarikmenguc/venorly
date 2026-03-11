@@ -30,7 +30,7 @@ def competition_matrix_node(state: Any) -> Any:
     {complaints}
     
     Tablo şu sütunlara sahip olmalı:
-    Rakip Adı | Tahmini Fiyat/Aylık | Temel Özellik | Zayıf Nokta (Şikayetlerden) | MRR
+    Rakip Adı | Mevcut Model (Vitamin mi?) | Çözülemeyen Acı Noktası | 1 Tıkla Ne Kadar Zaman Kazandırabilir | MRR
     
     Sadece ve sadece Markdown tablosunu üret, başka bir metin yazma."""
     

@@ -49,9 +49,9 @@ def validate_idea_node(state: Any) -> Any:
 
     # 3. LLM Skorlama
     score_prompt = f"""Bir yatırımcı olarak aşağıdaki Micro-SaaS startup raporunu 1-10 arası puanla.
-    Kriterler:
-    - Gerçekçilik
-    - Kârlılık ve Pazara uygunluk
+    Friction Economy Kriterleri:
+    - B2B ve "Ağrı Kesici" Odaklılık (B2C ise direkt 1 puan ver)
+    - Ödeme İsteği (Willingness to Pay - İnsanlar saatlerce uğraşmamak için buna para öder mi?)
     - Teknik Fizibilite
     
     Rapor: {report[:1500]}

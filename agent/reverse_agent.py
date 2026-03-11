@@ -145,8 +145,8 @@ def generate_disruption_report_node(state: ReverseState):
     for m in models:
         models_text += f"- {m.get('name')} ({m.get('source')}): {m.get('description', '')[:100]} | Dls: {m.get('downloads', 0)}\n"
         
-    prompt = f"""Sen bir yıkıcı inovasyon (disruptive innovation) uzmanısın.
-    Hedefimiz '{target}' adlı girişimin pazarına girip onu alt etmek veya o pazarda yeni bir Micro-SaaS yaratmak.
+    prompt = f"""Sen bir yıkıcı B2B SaaS inovasyon (disruptive innovation) uzmanısın.
+    Hedefimiz '{target}' adlı girişimin pazarına girip onu alt etmek veya o pazarda B2B müşterilerin saatlerini çalan spesifik bir açığı yakalayıp yeni bir Micro-SaaS yaratmak.
     
     --- VERİLER ---
     Hedef Analizi: {analysis}
@@ -156,23 +156,21 @@ def generate_disruption_report_node(state: ReverseState):
     {models_text if models_text else 'Model bulunamadı.'}
     
     --- GÖREV ---
-    Aşağıdaki formatta detaylı, somut, sayılarla dolu bir 'Disruption (Yıkım) Raporu' oluştur:
+    Sadece 'B2B/Painkiller' ve '1-Tıkla Otomasyon' (Friction Economy) kurallarına uyarak aşağıdaki formatta detaylı, somut, sayılarla dolu bir 'Disruption (Yıkım) Raporu' oluştur:
     
     🔥 HEDEF: {target} (Disruption Raporu)
     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    🎯 Hedefin Zayıf Noktaları: (Şikayetlerden yola çıkarak)
+    🎯 Hedefin "Vitamin" Kaldığı Zayıf Noktalar: (Şikayetlerden yola çıkarak müşterinin hala manuel yaptığı angaryalar neler?)
     
-    🥊 Yıkıcı Fikir (Micro-SaaS): (Hangi modelle, hangi problemi nasıl çözeceğiz?)
+    🥊 Yıkıcı Fikir (Ağrı Kesici B2B SaaS): (Hangi AI modeliyle, bu angaryayı nasıl 1 tıklamaya indireceğiz?)
     
-    📦 Kullanılacak AI Modeli: (Neden bu model?)
+    💰 Ödeme İsteği (Willingness to Pay): (Müşteriler bu 1 tıklama için neden {target}'a ödedikleri parayı bırakıp bize ödesin? Kaç saat kurtaracaklar?)
     
-    ⏱️ Tahmini Geliştirme Süresi: (MVP: X hafta)
+    ⏱️ Tahmini MVP Geliştirme Süresi: (MVP: X hafta)
     
     🔧 Teknik Zorluk: (1-5 Puan)
     
-    🚀 Piyasaya Giriş (Go-to-Market) Stratejisi: (Rakiplerin kullanıcılarını nasıl çalacağız?)
-    
-    💲 Fiyatlandırma Avantajı: 
+    🚀 Piyasaya Giriş (GTM) Stratejisi: (Rakiplerin kullanıcılarını nasıl çalacağız? Hangi Reddit/Upwork vb. nişlere gideğiz?)
     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     """
     
