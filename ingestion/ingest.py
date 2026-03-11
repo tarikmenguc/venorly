@@ -9,22 +9,19 @@ import os
 import sys
 
 from langchain_chroma import Chroma
-from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_core.documents import Document
 
 BASE_DIR  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, BASE_DIR)
+
 CHROMA_DIR = os.path.join(BASE_DIR, "chroma_db")
 DATA_DIR   = os.path.join(BASE_DIR, "data")
 
 MODELS_FILE = os.path.join(DATA_DIR, "models_raw.json")
 APPS_FILE   = os.path.join(DATA_DIR, "apps_raw.json")
 
-EMBEDDING_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
-
-
-def get_embeddings():
-    print(f"[Ingestion] Embedding modeli yükleniyor: {EMBEDDING_MODEL}")
-    return HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
+# Merkezî embedding modülünü kullan (Gemini Embedding 2)
+from lib.embeddings import get_embeddings
 
 
 def load_json(path: str) -> list[dict]:
