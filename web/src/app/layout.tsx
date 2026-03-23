@@ -8,8 +8,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Startup Idea Finder V4",
-  description: "Zero-cost market intelligence and reasoning engine.",
+  title: "Startup Idea Finder V6 — AI Pazar İstihbarat Motoru",
+  description: "Yapay zeka destekli pazar araştırması ile kârlı Micro-SaaS fırsatlarını keşfedin. 6+ veri kaynağı, 5 analiz modu, çoklu AI ajanları.",
 };
 
 export default function RootLayout({

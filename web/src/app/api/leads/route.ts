@@ -6,8 +6,8 @@ export async function GET(request: Request) {
         const { searchParams } = new URL(request.url);
         const status = searchParams.get('status') as any;
 
-        const leads = status ? LeadDB.getByStatus(status) : LeadDB.getAll();
-        const stats = LeadDB.getStats();
+        const leads = status ? await LeadDB.getByStatus(status) : await LeadDB.getAll();
+        const stats = await LeadDB.getStats();
 
         return NextResponse.json({ leads, stats });
     } catch (error) {
@@ -24,7 +24,7 @@ export async function PATCH(request: Request) {
             return NextResponse.json({ error: 'id ve status gerekli' }, { status: 400 });
         }
 
-        const success = LeadDB.updateStatus(id, status);
+        const success = await LeadDB.updateStatus(id, status);
         return NextResponse.json({ success });
     } catch (error) {
         return NextResponse.json({ error: String(error) }, { status: 500 });

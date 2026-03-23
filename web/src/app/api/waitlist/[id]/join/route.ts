@@ -13,7 +13,7 @@ export async function POST(
             return NextResponse.json({ error: 'Invalid email address' }, { status: 400 });
         }
 
-        const success = WaitlistDB.addEmail(id, email);
+        const success = await WaitlistDB.addEmail(id, email);
         if (!success) {
             return NextResponse.json({ error: 'Waitlist not found' }, { status: 404 });
         }

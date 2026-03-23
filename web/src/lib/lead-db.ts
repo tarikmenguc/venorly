@@ -1,89 +1,102 @@
-import fs from 'fs';
-import path from 'path';
-
-const DATA_DIR = path.join(process.cwd(), '.data');
-const LEADS_FILE = path.join(DATA_DIR, 'leads.json');
+import { supabase } from './supabase';
 
 export interface Lead {
     id: string;
-    source: string;           // Upwork, Reddit, GitHub, n8n Forum
+    source: string;
     title: string;
     url: string;
-    desc: string;
+    description: string;
     score: number;
     status: 'new' | 'contacted' | 'converted' | 'archived';
-    dm_template: string;     // Kişiselleştirilmiş DM şablonu
-    scan_category: string;   // Hangi taramadan geldi
-    added_at: string;
-}
-
-function initDb() {
-    if (!fs.existsSync(DATA_DIR)) {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-    if (!fs.existsSync(LEADS_FILE)) {
-        fs.writeFileSync(LEADS_FILE, JSON.stringify([], null, 2), 'utf-8');
-    }
-}
-
-function getDb(): Lead[] {
-    initDb();
-    try {
-        const data = fs.readFileSync(LEADS_FILE, 'utf-8');
-        return JSON.parse(data);
-    } catch {
-        return [];
-    }
-}
-
-function saveDb(leads: Lead[]) {
-    initDb();
-    fs.writeFileSync(LEADS_FILE, JSON.stringify(leads, null, 2), 'utf-8');
+    dm_template: string;
+    scan_category: string;
+    created_at: string;
 }
 
 export const LeadDB = {
-    addMany: (leads: Array<{
+    addMany: async (leads: Array<{
         source: string;
         title: string;
         url?: string;
-        desc?: string;
+        description?: string;
         score?: number;
         dm_template?: string;
         scan_category?: string;
-    }>): Lead[] => {
-        const existing = getDb();
-        const newLeads: Lead[] = leads.map(l => ({
-            id: 'lead-' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6),
+    }>): Promise<Lead[]> => {
+        const newLeads = leads.map(l => ({
             source: l.source || 'Unknown',
             title: l.title || '',
             url: l.url || '',
-            desc: l.desc || '',
+            description: l.description || '',
             score: l.score || 0,
-            status: 'new' as const,
+            status: 'new',
             dm_template: l.dm_template || '',
-            scan_category: l.scan_category || '',
-            added_at: new Date().toISOString(),
+            scan_category: l.scan_category || ''
         }));
-        existing.unshift(...newLeads);
-        saveDb(existing);
-        return newLeads;
+
+        const { data, error } = await supabase
+            .from('leads')
+            .insert(newLeads)
+            .select();
+
+        if (error) {
+            console.error("Error inserting leads deeply:", error);
+            return [];
+        }
+        return data as Lead[];
     },
 
-    getAll: (): Lead[] => getDb(),
+    getAll: async (): Promise<Lead[]> => {
+        const { data, error } = await supabase
+            .from('leads')
+            .select('*')
+            .order('created_at', { ascending: false });
 
-    getByStatus: (status: Lead['status']): Lead[] => getDb().filter(l => l.status === status),
+        if (error) {
+            console.error("Error fetching leads:", error);
+            return [];
+        }
+        return data as Lead[];
+    },
 
-    updateStatus: (id: string, status: Lead['status']): boolean => {
-        const leads = getDb();
-        const lead = leads.find(l => l.id === id);
-        if (!lead) return false;
-        lead.status = status;
-        saveDb(leads);
+    getByStatus: async (status: Lead['status']): Promise<Lead[]> => {
+        const { data, error } = await supabase
+            .from('leads')
+            .select('*')
+            .eq('status', status)
+            .order('created_at', { ascending: false });
+
+        if (error) {
+            console.error(`Error fetching leads by status ${status}:`, error);
+            return [];
+        }
+        return data as Lead[];
+    },
+
+    updateStatus: async (id: string, status: Lead['status']): Promise<boolean> => {
+        const { error } = await supabase
+            .from('leads')
+            .update({ status })
+            .eq('id', id);
+
+        if (error) {
+            console.error("Error updating lead status:", error);
+            return false;
+        }
         return true;
     },
 
-    getStats: () => {
-        const leads = getDb();
+    getStats: async () => {
+        const { data: leads, error } = await supabase
+            .from('leads')
+            .select('status, source');
+
+        if (error || !leads) {
+            return {
+                total: 0, new_count: 0, contacted: 0, converted: 0, archived: 0, by_source: {}
+            };
+        }
+
         return {
             total: leads.length,
             new_count: leads.filter(l => l.status === 'new').length,
@@ -91,7 +104,8 @@ export const LeadDB = {
             converted: leads.filter(l => l.status === 'converted').length,
             archived: leads.filter(l => l.status === 'archived').length,
             by_source: leads.reduce((acc, l) => {
-                acc[l.source] = (acc[l.source] || 0) + 1;
+                const src = l.source as string;
+                acc[src] = (acc[src] || 0) + 1;
                 return acc;
             }, {} as Record<string, number>),
         };

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Check,
@@ -99,15 +100,14 @@ export default function PricingPage() {
       <div className="max-w-7xl mx-auto px-6 py-16 space-y-12">
         {/* Title */}
         <div className="text-center space-y-4">
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-400 text-sm font-medium">
-            <Sparkles className="w-4 h-4" /> Friction Economy Engine
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-green-500/10 border border-green-500/20 text-green-400 text-sm font-medium">
+            <Sparkles className="w-4 h-4" /> Lansmana Özel Tamamen Ücretsiz
           </div>
           <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight bg-gradient-to-r from-white via-white to-white/50 bg-clip-text text-transparent">
-            Size uygun planı seçin
+            Şimdilik kredi kartına gerek yok
           </h1>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            Her plan, yapay zeka destekli pazar istihbaratı ve iş fikri keşfi içerir.
-            İhtiyacınıza göre ölçeklendirin.
+            Ürünümüz şu an erken erişim (Beta) aşamasında olduğu için tüm özellikler geçici bir süreliğine ücretsizdir. Sadece kötüye kullanımı engellemek için günlük IP güvenlik limitleri uygulanmaktadır.
           </p>
         </div>
 
@@ -148,7 +148,8 @@ export default function PricingPage() {
 
               {/* CTA Button */}
               <button
-                className={`w-full py-3 rounded-xl text-sm font-semibold transition-all mb-6 ${plan.buttonStyle}`}
+                onClick={() => router.push("/dashboard")}
+                className={`w-full py-3 rounded-xl text-sm font-semibold transition-all mb-6 flex items-center justify-center ${plan.buttonStyle}`}
               >
                 {plan.buttonText}
               </button>

@@ -15,3 +15,9 @@ sentence-transformers
 tavily-python
 playwright
 langgraph
+fastapi
+uvicorn
+supabase
+fpdf2
+sse-starlette
+pydantic

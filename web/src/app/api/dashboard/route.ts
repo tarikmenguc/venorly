@@ -1,29 +1,26 @@
 import { NextResponse } from 'next/server';
 import { ScanDB } from '@/lib/scan-db';
+import { supabase } from '@/lib/supabase';
 
 export async function GET() {
     try {
-        const stats = ScanDB.getStats();
-        const recent = ScanDB.getRecent(10);
+        const stats = await ScanDB.getStats();
+        const recent = await ScanDB.getRecent(10);
 
-        // Waitlist verilerini de topla
         let waitlist_count = 0;
         let total_emails = 0;
+
         try {
-            const { WaitlistDB } = await import('@/lib/waitlist-db');
-            // WaitlistDB'den tüm waitlist'leri al (getAll metodu yok, 
-            // o yüzden tüm dosyayı okuyoruz)
-            const fs = await import('fs');
-            const path = await import('path');
-            const dbPath = path.join(process.cwd(), '.data', 'waitlists.json');
-            if (fs.existsSync(dbPath)) {
-                const data = JSON.parse(fs.readFileSync(dbPath, 'utf-8'));
-                const entries = Object.values(data) as any[];
-                waitlist_count = entries.length;
-                total_emails = entries.reduce((sum: number, w: any) => sum + (w.emails?.length || 0), 0);
+            const { data: waitlists, error } = await supabase
+                .from('waitlists')
+                .select('emails');
+
+            if (!error && waitlists) {
+                waitlist_count = waitlists.length;
+                total_emails = waitlists.reduce((sum: number, w: { emails?: string[] }) => sum + (w.emails?.length || 0), 0);
             }
-        } catch {
-            // Waitlist dosyası yoksa sorun değil
+        } catch (e) {
+            console.error("Waitlist stats error:", e);
         }
 
         return NextResponse.json({

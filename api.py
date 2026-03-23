@@ -1,5 +1,7 @@
 import json
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
+from lib.pdf_generator import generate_report_pdf
+from lib.supabase_client import supabase
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -22,13 +24,209 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/api/scans/{scan_id}/pdf")
+async def get_scan_pdf(scan_id: str):
+    try:
+        # Supabase'den scan verisini çek
+        res = supabase.table("scans").select("*").eq("id", scan_id).single().execute()
+        scan_data = res.data
+        
+        if not scan_data:
+            return Response(content="Scan not found", status_code=404)
+            
+        # PDF üret
+        pdf_bytes = generate_report_pdf(scan_data)
+        
+        # Dosya adını temizle
+        filename = f"Report_{scan_data.get('category', 'Analysis').replace(' ', '_')}.pdf"
+        
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}"
+            }
+        )
+    except Exception as e:
+        print(f"PDF Generation Error: {e}")
+        return Response(content=str(e), status_code=500)
+
+# ============ AI CHAT (Fikir Danışmanı) ============
+
+CHAT_LIMIT_PER_SCAN = 15
+
+class ChatRequest(BaseModel):
+    scan_id: str
+    message: str
+
+@app.get("/api/chat/{scan_id}")
+async def get_chat_history(scan_id: str):
+    """Bir taramaya ait sohbet geçmişini döner."""
+    try:
+        res = supabase.table("chat_messages").select("*").eq("scan_id", scan_id).order("created_at").execute()
+        return {"messages": res.data or [], "limit": CHAT_LIMIT_PER_SCAN}
+    except Exception as e:
+        return Response(content=str(e), status_code=500)
+
+@app.post("/api/chat")
+async def chat_endpoint(req: ChatRequest):
+    """Rapor bağlamında AI ile sohbet — streaming SSE."""
+    try:
+        # 1. Mesaj limiti kontrolü
+        count_res = supabase.table("chat_messages").select("id", count="exact").eq("scan_id", req.scan_id).eq("role", "user").execute()
+        user_msg_count = count_res.count or 0
+        if user_msg_count >= CHAT_LIMIT_PER_SCAN:
+            return Response(
+                content=json.dumps({"error": f"Bu tarama için mesaj limitinize ({CHAT_LIMIT_PER_SCAN}) ulaştınız."}),
+                status_code=429,
+                media_type="application/json"
+            )
+
+        # 2. Rapor bağlamını çek
+        scan_res = supabase.table("scans").select("category, mode, full_report, report_preview").eq("id", req.scan_id).single().execute()
+        scan_data = scan_res.data
+
+        report_context = ""
+        if scan_data:
+            fr = scan_data.get("full_report", {})
+            if isinstance(fr, dict):
+                report_context = fr.get("investment_memo", "") or fr.get("final_report", "") or scan_data.get("report_preview", "")
+            elif isinstance(fr, str):
+                report_context = fr
+            else:
+                report_context = scan_data.get("report_preview", "")
+
+        # 3. Geçmiş mesajları al
+        history_res = supabase.table("chat_messages").select("role, content").eq("scan_id", req.scan_id).order("created_at").execute()
+        history = history_res.data or []
+
+        # 4. Kullanıcı mesajını kaydet
+        supabase.table("chat_messages").insert({
+            "scan_id": req.scan_id,
+            "role": "user",
+            "content": req.message
+        }).execute()
+
+        # 5. LLM çağrısı (streaming)
+        from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+
+        system_prompt = f"""Sen "Startup Idea Finder" uygulamasının yerleşik AI danışmanısın. 
+Kullanıcı bir pazar araştırması yaptı ve aşağıdaki raporu aldı. Şimdi seninle bu rapor hakkında konuşmak istiyor.
+
+KURALLAR:
+- SADECE bu rapor bağlamında cevap ver. Genel sohbet yapma.
+- Kısa, net ve aksiyon odaklı cevaplar ver (max 300 kelime).
+- Türkçe cevap ver.
+- Emojileri kullanarak cevapları okunabilir yap.
+- Fiyatlandırma, teknik mimari, müşteri bulma, rakip analizi gibi konularda uzman gibi davran.
+
+RAPOR BAĞLAMI:
+Kategori: {scan_data.get('category', 'Bilinmiyor') if scan_data else 'Bilinmiyor'}
+Mod: {scan_data.get('mode', 'Bilinmiyor') if scan_data else 'Bilinmiyor'}
+
+---
+{report_context[:3000]}
+---"""
+
+        messages = [SystemMessage(content=system_prompt)]
+        for msg in history:
+            if msg["role"] == "user":
+                messages.append(HumanMessage(content=msg["content"]))
+            else:
+                messages.append(AIMessage(content=msg["content"]))
+        messages.append(HumanMessage(content=req.message))
+
+        from agent.idea_agent import get_llm
+        llm = get_llm(temp=0.6)
+
+        def chat_stream():
+            full_response = ""
+            try:
+                for chunk in llm.stream(messages):
+                    token = chunk.content
+                    if token:
+                        full_response += token
+                        yield f"data: {json.dumps({'token': token})}\n\n"
+
+                # Stream bittikten sonra assistant mesajını kaydet
+                supabase.table("chat_messages").insert({
+                    "scan_id": req.scan_id,
+                    "role": "assistant",
+                    "content": full_response
+                }).execute()
+
+                yield f"data: {json.dumps({'done': True, 'remaining': CHAT_LIMIT_PER_SCAN - user_msg_count - 1})}\n\n"
+            except Exception as e:
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+        return StreamingResponse(chat_stream(), media_type="text/event-stream")
+
+    except Exception as e:
+        print(f"Chat Error: {e}")
+        return Response(content=json.dumps({"error": str(e)}), status_code=500, media_type="application/json")
+
+# ============ SCAN ENDPOINT ============
+
 class ScanRequest(BaseModel):
     mode: str  # "discover", "deep", "reverse"
     category: str = ""
     target_startup: str = ""
 
 @app.post("/api/scan")
-async def scan_endpoint(req: ScanRequest):
+async def scan_endpoint(req: ScanRequest, request: Request):
+    # --- RATE LIMITING (Kullanım Limiti) Başlangıcı ---
+    # Gerçek IP adresini alıyoruz (Vercel vb. arkasındaysa x-forwarded-for)
+    client_ip = request.client.host
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        client_ip = forwarded_for.split(",")[0]
+
+    def is_limit_exceeded(ip: str, mode: str) -> bool:
+        try:
+            from lib.supabase_client import supabase
+            from datetime import datetime, timezone, timedelta
+            
+            # Son 24 saatin başlangıcı
+            yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+            
+            # Bu IP'nin son 24 saatteki spesifik kullanım geçmişini çek
+            res = supabase.table("usage_logs").select("*").eq("ip_address", ip).gte("created_at", yesterday).execute()
+            logs = res.data
+            
+            # Toplam günlük hak (Discover vb.) -> Max 3
+            # Toplam günlük ağır analiz hakkı (Deep/Orchestrate) -> Max 1
+            
+            total_uses = len(logs)
+            heavy_uses = sum(1 for log in logs if log.get("action_type") in ["deep", "orchestrate"])
+            
+            if mode in ["deep", "orchestrate"]:
+                if heavy_uses >= 1:
+                    return True # Ağır analiz limiti doldu
+            else:
+                if total_uses >= 3:
+                     return True # Genel limit doldu (Discover vb.)
+            
+            # Limit aşılmadıysa, kullanımı kaydet (logla)
+            supabase.table("usage_logs").insert({
+                "ip_address": ip,
+                "action_type": mode
+            }).execute()
+            
+            return False
+            
+        except Exception as e:
+            print(f"Rate Limiting Error: {e}")
+            # Hata durumunda (Supabase göçerse vb.) blocklamamak için False dön
+            return False
+
+    # Limiti kontrol et
+    if is_limit_exceeded(client_ip, req.mode):
+        async def err_gen():
+            error_msg = "Günlük ücretsiz limitinize ulaştınız. Derin analizler için günde 1, keşifler için günde 3 hakkınız bulunmaktadır. Lütfen yarın tekrar deneyin."
+            yield f"data: {json.dumps({'error': error_msg})}\n\n"
+        return StreamingResponse(err_gen(), media_type="text/event-stream")
+    # --- RATE LIMITING Bitişi ---
+
     def event_generator():
         try:
             if req.mode == "discover" or req.mode == "category":
@@ -137,7 +335,52 @@ async def scan_endpoint(req: ScanRequest):
                 for event in orchestrator_agent.stream(initial_state):
                     node_name = list(event.keys())[0]
                     result = event[node_name]
+                    
+                    # Supabase'e kaydet (sadece son adımda)
+                    if node_name == "gtm_agent" and "selected_angle" in result:
+                        try:
+                            from lib.supabase_client import supabase
+                            import uuid
+                            
+                            scan_id = str(uuid.uuid4())
+                            leads_count = len(result.get("buyer_leads", []))
+                            angles_count = len(result.get("brainstormed_angles", []))
+                            
+                            # 1. Taramayı kaydet
+                            supabase.table("scans").insert({
+                                "id": scan_id,
+                                "category": req.category,
+                                "mode": "orchestrate",
+                                "status": "completed",
+                                "report_preview": result.get("investment_memo", "")[:200],
+                                "leads_count": leads_count,
+                                "angles_count": angles_count,
+                                "full_report": result
+                            }).execute()
+                            
+                            # 2. Lead'leri kaydet
+                            if leads_count > 0:
+                                leads_to_insert = []
+                                for l in result["buyer_leads"]:
+                                    leads_to_insert.append({
+                                        "scan_category": req.category,
+                                        "source": l.get("source", "Unknown"),
+                                        "title": l.get("title", ""),
+                                        "url": l.get("url", ""),
+                                        "description": l.get("content", l.get("desc", "")),
+                                        "score": l.get("score", 0),
+                                        "status": "new",
+                                        "dm_template": l.get("dm_template", "")
+                                    })
+                                supabase.table("leads").insert(leads_to_insert).execute()
+                                
+                        except Exception as e:
+                            print(f"[API] Supabase kayıt hatası: {e}")
+
                     data = {"node": node_name, "state": result}
+                    # scan_id'yi frontend'e gönder (chat paneli için)
+                    if 'scan_id' in dir() and scan_id:
+                        data["scan_id"] = scan_id
                     yield f"data: {json.dumps(data)}\n\n"
 
             elif req.mode == "trends":

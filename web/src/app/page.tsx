@@ -4,6 +4,7 @@ import { useState } from "react";
 import { GradientDots } from "@/components/ui/gradient-dots";
 import { NavBar } from "@/components/ui/tubelight-navbar";
 import { TextLoop } from "@/components/ui/text-loop";
+import { ChatPanel } from "@/components/ui/chat-panel";
 import { Home, Lightbulb, Search, Settings, LineChart, Cpu, Sparkles, Loader2, Users } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import ReactMarkdown from "react-markdown";
@@ -17,6 +18,7 @@ export default function HomeDashboard() {
   const [leads, setLeads] = useState<any[]>([]);
   const [mode, setMode] = useState("discover");
   const [isCreatingWaitlist, setIsCreatingWaitlist] = useState(false);
+  const [scanId, setScanId] = useState<string | null>(null);
 
   const navItems = [
     { name: "Keşfet", url: "#", icon: Home, mode: "discover" },
@@ -37,7 +39,7 @@ export default function HomeDashboard() {
     setLeads([]);
 
     try {
-      const response = await fetch("http://localhost:8000/api/scan", {
+      const response = await fetch("http://127.0.0.1:8000/api/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         // Use the current mode state, default to the currently selected mode
@@ -63,12 +65,18 @@ export default function HomeDashboard() {
               if (!dataStr) continue;
               const data = JSON.parse(dataStr);
 
+              if (data.scan_id) {
+                setScanId(data.scan_id);
+              }
               if (data.status === "done") {
                 setLoading(false);
                 setCurrentNode("Analiz Tamamlandı ✨");
               } else if (data.error) {
-                setCurrentNode(`Hata: ${data.error} `);
+                // Rate Limiting veya diğer backend hatalarını göster
+                setCurrentNode(data.error);
+                setReport(`> [!WARNING]\n> ${data.error}\n\n**Çözüm:** Farklı bir cihaz/internet ağı kullanarak veya API kotalarınızın sıfırlanması için yarın tekrar deneyebilirsiniz.`);
                 setLoading(false);
+                alert(`Hata: ${data.error}`);
               } else if (data.node) {
                 setCurrentNode(`İşlem: ${data.node}...`);
 
@@ -89,8 +97,10 @@ export default function HomeDashboard() {
         }
       }
     } catch (error: any) {
+      console.error("Scan Error:", error);
       setCurrentNode("Bağlantı Hatası: Lütfen arkada FastAPI'nin çalıştığından emin ol.");
       setLoading(false);
+      alert("Hata: Backend (FastAPI) sunucusuna bağlanılamadı. Lütfen terminalden uvicorn'un çalıştığını kontrol edin.");
     }
   };
 
@@ -134,7 +144,7 @@ export default function HomeDashboard() {
     <main className="relative flex min-h-screen w-full flex-col bg-background text-foreground overflow-x-hidden">
       {/* Arka plan animasyonu tıklamaları engellememesi için pointer-events-none */}
       <div className="absolute inset-0 pointer-events-none z-[-1]">
-        <GradientDots duration={40} dotSize={6} spacing={12} className="opacity-40 w-full h-full pointer-events-none" />
+        <GradientDots dotSize={1} spacing={20} opacity={0.35} className="w-full h-full pointer-events-none" />
       </div>
 
       {/* Navbar'ı doğrudan çağırıyoruz ve mode değiştiğinde her şeyi sıfırlıyoruz */}
@@ -151,8 +161,8 @@ export default function HomeDashboard() {
 
         {!report && !loading && (
           <div className="flex flex-col items-center justify-center -mt-20">
-            <Badge variant="outline" className="mb-6 backdrop-blur-md bg-white/5 border-white/10 px-4 py-1 text-sm font-medium hover:bg-white/10 transition-colors">
-              <Sparkles className="w-4 h-4 mr-2" /> V4 Deep Research Engine Live
+          <Badge variant="outline" className="mb-6 backdrop-blur-md bg-white/5 border-white/10 px-4 py-1 text-sm font-medium hover:bg-white/10 transition-colors">
+              <Sparkles className="w-4 h-4 mr-2" /> V6 Multi-Agent Research Engine
             </Badge>
 
             <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight text-center max-w-4xl leading-tight">
@@ -169,8 +179,8 @@ export default function HomeDashboard() {
             </h1>
 
             <p className="mt-6 max-w-2xl text-center text-lg text-muted-foreground/80 font-medium">
-              Zero-cost market intelligence and reasoning engine.
-              Discover profitable niches before they explode.
+              Yapay zeka destekli pazar istihbarat motoru.
+              Kârlı nişleri herkes bulmadan önce keşfet.
             </p>
 
             <div className="mt-10 flex flex-col sm:flex-row gap-4 w-full max-w-lg relative z-20">
@@ -186,6 +196,18 @@ export default function HomeDashboard() {
               >
                 {mode === "reverse" ? "Rakip Analizi Başlat" : mode === "deep" ? "Derin Analiz" : "Hızlı Tarama"}
               </button>
+            </div>
+
+            <div className="mt-6 flex gap-4 text-sm">
+              <a href="/features" className="text-muted-foreground hover:text-white transition-colors underline underline-offset-4">
+                Nasıl Çalışır?
+              </a>
+              <a href="/dashboard" className="text-muted-foreground hover:text-white transition-colors underline underline-offset-4">
+                Dashboard
+              </a>
+              <a href="/pricing" className="text-muted-foreground hover:text-white transition-colors underline underline-offset-4">
+                Fiyatlandırma
+              </a>
             </div>
           </div>
         )}
@@ -283,6 +305,9 @@ export default function HomeDashboard() {
           </div>
         )}
       </div>
+
+      {/* AI Chat Panel — rapor varsa göster */}
+      {report && <ChatPanel scanId={scanId} reportContext={report} />}
     </main>
   );
 }

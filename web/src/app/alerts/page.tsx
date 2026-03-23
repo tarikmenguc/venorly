@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   Bell,
@@ -16,10 +16,10 @@ import {
 interface NicheAlert {
   id: string;
   keyword: string;
-  frequency: "daily" | "weekly";
+  frequency: "daily" | "weekly" | "realtime";
   email: string;
   created_at: string;
-  active: boolean;
+  is_active: boolean;
 }
 
 export default function AlertsPage() {
@@ -27,28 +27,64 @@ export default function AlertsPage() {
   const [keyword, setKeyword] = useState("");
   const [email, setEmail] = useState("");
   const [frequency, setFrequency] = useState<"daily" | "weekly">("daily");
+  const [loading, setLoading] = useState(false);
   const router = useRouter();
 
-  function addAlert() {
+  // Load alerts from DB on mount
+  useEffect(() => {
+    fetchAlerts();
+  }, []);
+
+  async function fetchAlerts() {
+    try {
+      const res = await fetch("/api/alerts");
+      const data = await res.json();
+      if (data.alerts) setAlerts(data.alerts);
+    } catch (e) {
+      console.error("Failed to fetch alerts:", e);
+    }
+  }
+
+  async function addAlert() {
     if (!keyword || !email) return;
-    const newAlert: NicheAlert = {
-      id: "alert-" + Date.now().toString(36),
-      keyword,
-      frequency,
-      email,
-      created_at: new Date().toISOString(),
-      active: true,
-    };
-    setAlerts([newAlert, ...alerts]);
-    setKeyword("");
+    setLoading(true);
+    try {
+      const res = await fetch("/api/alerts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keyword, email, frequency }),
+      });
+      if (res.ok) {
+        setKeyword("");
+        fetchAlerts();
+      }
+    } catch (e) {
+      console.error("Failed to add alert:", e);
+    } finally {
+      setLoading(false);
+    }
   }
 
-  function removeAlert(id: string) {
-    setAlerts(alerts.filter((a) => a.id !== id));
+  async function removeAlert(id: string) {
+    try {
+      const res = await fetch(`/api/alerts?id=${id}`, { method: "DELETE" });
+      if (res.ok) fetchAlerts();
+    } catch (e) {
+      console.error("Failed to delete alert:", e);
+    }
   }
 
-  function toggleAlert(id: string) {
-    setAlerts(alerts.map((a) => (a.id === id ? { ...a, active: !a.active } : a)));
+  async function toggleAlert(id: string, currentStatus: boolean) {
+    try {
+      const res = await fetch("/api/alerts", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, is_active: !currentStatus }),
+      });
+      if (res.ok) fetchAlerts();
+    } catch (e) {
+      console.error("Failed to toggle alert:", e);
+    }
   }
 
   return (
@@ -158,20 +194,20 @@ export default function AlertsPage() {
                 <div
                   key={alert.id}
                   className={`flex items-center gap-4 rounded-xl border p-4 transition-all ${
-                    alert.active
+                    alert.is_active
                       ? "bg-card border-white/5 hover:border-amber-500/20"
                       : "bg-card/50 border-white/3 opacity-60"
                   }`}
                 >
                   <button
-                    onClick={() => toggleAlert(alert.id)}
+                    onClick={() => toggleAlert(alert.id, alert.is_active)}
                     className={`w-10 h-6 rounded-full relative transition-colors ${
-                      alert.active ? "bg-amber-500" : "bg-white/10"
+                      alert.is_active ? "bg-amber-500" : "bg-white/10"
                     }`}
                   >
                     <div
                       className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
-                        alert.active ? "left-4" : "left-0.5"
+                        alert.is_active ? "left-4" : "left-0.5"
                       }`}
                     />
                   </button>
@@ -201,11 +237,9 @@ export default function AlertsPage() {
           )}
         </div>
 
-        {/* Info */}
         <div className="rounded-xl bg-amber-500/5 border border-amber-500/10 p-4">
           <p className="text-xs text-amber-400/80">
             💡 <strong>Pro İpucu:</strong> Alarmlar arka planda çalışır ve belirttiğiniz niş alanında yeni fırsatlar tespit edildiğinde e-posta gönderir.
-            Şu anda alarmlar yerel olarak saklanmaktadır — üretim ortamında Supabase ile senkronize edilecektir.
           </p>
         </div>
 

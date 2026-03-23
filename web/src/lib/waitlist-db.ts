@@ -1,11 +1,5 @@
-import fs from 'fs';
-import path from 'path';
+import { supabase } from './supabase';
 
-// Local veri saklayacağımız klasör: web/.data
-const DATA_DIR = path.join(process.cwd(), '.data');
-const DB_FILE = path.join(DATA_DIR, 'waitlists.json');
-
-// Types
 export interface Waitlist {
     id: string;
     title: string;
@@ -15,61 +9,69 @@ export interface Waitlist {
     emails: string[];
 }
 
-// Ensure db exists
-function initDb() {
-    if (!fs.existsSync(DATA_DIR)) {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-    if (!fs.existsSync(DB_FILE)) {
-        fs.writeFileSync(DB_FILE, JSON.stringify({}, null, 2), 'utf-8');
-    }
-}
-
-// Get all waitlists map
-function getDb(): Record<string, Waitlist> {
-    initDb();
-    const data = fs.readFileSync(DB_FILE, 'utf-8');
-    return JSON.parse(data);
-}
-
-// Save all 
-function saveDb(db: Record<string, Waitlist>) {
-    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), 'utf-8');
-}
-
 export const WaitlistDB = {
-    create: (title: string, description: string, target_audience: string): Waitlist => {
-        const db = getDb();
+    create: async (title: string, description: string, target_audience: string): Promise<Waitlist | null> => {
         // Rastgele ID üret (örn: idea-a1b2c3d4)
         const id = "idea-" + Math.random().toString(36).substring(2, 10);
-
-        const newWaitlist: Waitlist = {
+        
+        const newWaitlist = {
             id,
             title,
             description,
             target_audience,
-            created_at: new Date().toISOString(),
             emails: []
         };
 
-        db[id] = newWaitlist;
-        saveDb(db);
-        return newWaitlist;
-    },
+        const { data, error } = await supabase
+            .from('waitlists')
+            .insert([newWaitlist])
+            .select()
+            .single();
 
-    get: (id: string): Waitlist | null => {
-        const db = getDb();
-        return db[id] || null;
-    },
-
-    addEmail: (id: string, email: string) => {
-        const db = getDb();
-        if (!db[id]) return false;
-
-        if (!db[id].emails.includes(email)) {
-            db[id].emails.push(email);
-            saveDb(db);
+        if (error) {
+            console.error("Error creating waitlist in Supabase:", error);
+            return null;
         }
+
+        return data as Waitlist;
+    },
+
+    get: async (id: string): Promise<Waitlist | null> => {
+        const { data, error } = await supabase
+            .from('waitlists')
+            .select('*')
+            .eq('id', id)
+            .single();
+
+        if (error) {
+            if (error.code !== 'PGRST116') { // not found
+                console.error("Error fetching waitlist from Supabase:", error);
+            }
+            return null;
+        }
+        return data as Waitlist;
+    },
+
+    addEmail: async (id: string, email: string): Promise<boolean> => {
+        // Get current waitlist to append email (since it's a TEXT[] array)
+        const current = await WaitlistDB.get(id);
+        if (!current) return false;
+
+        const emails = current.emails || [];
+        if (emails.includes(email)) return true; // Already signed up
+        
+        emails.push(email);
+
+        const { error } = await supabase
+            .from('waitlists')
+            .update({ emails })
+            .eq('id', id);
+
+        if (error) {
+            console.error("Error updating waitlist emails in Supabase:", error);
+            return false;
+        }
+        
         return true;
     }
 };
