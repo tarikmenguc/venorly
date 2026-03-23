@@ -56,7 +56,8 @@ export function ChatPanel({ scanId, reportContext }: ChatPanelProps) {
   async function loadHistory() {
     if (!scanId) return;
     try {
-      const res = await fetch(`http://127.0.0.1:8000/api/chat/${scanId}`);
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+      const res = await fetch(`${API_URL}/api/chat/${scanId}`);
       const data = await res.json();
       if (data.messages) {
         setMessages(data.messages.map((m: any) => ({ role: m.role, content: m.content })));
@@ -82,7 +83,8 @@ export function ChatPanel({ scanId, reportContext }: ChatPanelProps) {
     setMessages(prev => [...prev, { role: "assistant", content: "" }]);
 
     try {
-      const res = await fetch("http://127.0.0.1:8000/api/chat", {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+      const res = await fetch(`${API_URL}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ scan_id: scanId, message: text.trim() }),

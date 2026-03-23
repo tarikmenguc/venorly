@@ -44,7 +44,8 @@ export default function ScanDetailPage({ params }: { params: { id: string } }) {
     setIsExporting(true);
     try {
       // Backend'deki PDF endpoint'ine yönlendir
-      window.open(`http://localhost:8000/api/scans/${params.id}/pdf`, "_blank");
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+      window.open(`${API_URL}/api/scans/${params.id}/pdf`, "_blank");
     } catch (e) {
       console.error("PDF Export Error:", e);
       alert("PDF oluşturulurken bir hata oluştu.");
