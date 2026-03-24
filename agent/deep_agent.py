@@ -10,7 +10,7 @@ from langgraph.graph import StateGraph, END
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE_DIR)
 
-from agent.idea_agent import get_llm, get_models_store, get_apps_store
+from agent.idea_agent import get_llm
 from scrapers.reality_intel import check_upwork_rss, scan_reddit_desperation, scrape_github_gui_requests 
 from agent.buyer_matcher import BuyerMatcherAgent
 
@@ -31,32 +31,46 @@ class DeepAgentState(TypedDict):
     product_gaps: List[dict]
     error: Optional[str]
 
-tavily = TavilySearchResults(max_results=3)
+tavily_search = TavilySearchResults(max_results=3)
 
 # ──────────────────────────────────────────────
-# NODE 1: Init Research (Veri Hazırlama)
+# NODE 1: Init Research (Tavily Web Araması)
 # ──────────────────────────────────────────────
 def init_research_node(state: DeepAgentState) -> DeepAgentState:
     print(f"[DeepResearch] Node 1 → init_research ({state['target_category']})")
     try:
-        models_store = get_models_store()
-        apps_store = get_apps_store()
+        from tavily import TavilyClient
+        tavily = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
         
-        # Modelleri Çek
-        m_docs = models_store.similarity_search(state['target_category'], k=10)
+        # Trending modelleri Tavily ile bul
+        model_results = tavily.search(
+            f"trending AI models tools for {state['target_category']} 2024 2025",
+            max_results=8, search_depth="basic"
+        )
         trending_models = []
-        for d in m_docs:
-            m = d.metadata.copy()
-            m['description'] = d.page_content
-            trending_models.append(m)
+        for r in model_results.get("results", []):
+            trending_models.append({
+                "name": r.get("title", ""),
+                "description": r.get("content", "")[:300],
+                "category": state["target_category"],
+                "source": "tavily_web",
+                "url": r.get("url", ""),
+            })
             
-        # App'leri Çek
-        a_docs = apps_store.similarity_search(state['target_category'], k=10)
+        # App'leri Tavily ile bul
+        app_results = tavily.search(
+            f"SaaS startups apps using {state['target_category']} AI",
+            max_results=8, search_depth="basic"
+        )
         known_apps = []
-        for d in a_docs:
-            a = d.metadata.copy()
-            a['description'] = d.page_content
-            known_apps.append(a)
+        for r in app_results.get("results", []):
+            known_apps.append({
+                "name": r.get("title", ""),
+                "description": r.get("content", "")[:300],
+                "category": state["target_category"],
+                "source": "tavily_web",
+                "url": r.get("url", ""),
+            })
             
         return {**state, "trending_models": trending_models, "known_apps": known_apps}
     except Exception as e:
@@ -144,10 +158,10 @@ def deep_web_research_node(state: DeepAgentState) -> DeepAgentState:
         try:
             # 1. Rakipler araması
             q1 = f"{angle} SaaS tools software competitors"
-            res1 = tavily.invoke(q1)
+            res1 = tavily_search.invoke(q1)
             # 2. Şikayet araması
             q2 = f"{angle} software reddit complaints issues"
-            res2 = tavily.invoke(q2)
+            res2 = tavily_search.invoke(q2)
             
             results.append({
                 "angle": angle,

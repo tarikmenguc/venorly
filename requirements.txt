@@ -1,16 +1,10 @@
 langchain-groq
-langchain-chroma
-langchain-huggingface
-huggingface_hub
-pandas>=2.1.0
 requests
 beautifulsoup4
 schedule
 python-dotenv
 langsmith
-sentence-transformers
 tavily-python
-playwright
 langgraph
 fastapi
 uvicorn

@@ -4,7 +4,6 @@ from typing import TypedDict
 from langgraph.graph import StateGraph, END
 from langchain_groq import ChatGroq
 from langchain_community.tools.tavily_search import TavilySearchResults
-import chromadb
 
 # --- 1. State Tanımı ---
 class ReverseState(TypedDict):
@@ -19,15 +18,7 @@ class ReverseState(TypedDict):
 
 # --- 2. Araçlar ve LLM ---
 llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.2)
-tavily = TavilySearchResults(max_results=3)
-
-# ChromaDB Bağlantısı
-CHROMA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "chroma_db")
-client = chromadb.PersistentClient(path=CHROMA_DIR)
-try:
-    models_collection = client.get_collection(name="ai_models")
-except Exception:
-    models_collection = None
+tavily_search = TavilySearchResults(max_results=3)
 
 # --- 3. Node'lar ---
 
@@ -44,7 +35,7 @@ def analyze_startup_node(state: ReverseState):
     """
     
     try:
-        search_results = tavily.invoke(f"{target} software saas app what it does pricing")
+        search_results = tavily_search.invoke(f"{target} software saas app what it does pricing")
         analysis_prompt = f"Gelen arama sonuçları: {json.dumps(search_results)}. \n{prompt}"
         analysis = llm.invoke(analysis_prompt).content
         return {"startup_analysis": analysis}
@@ -94,9 +85,6 @@ def scrape_all_complaints_node(state: ReverseState):
 def find_matching_ai_model_node(state: ReverseState):
     if state.get("error"): return state
     print("[Reverse] Node 4 → find_matching_ai_model")
-    
-    if not models_collection:
-        return {"error": "ChromaDB modelleri bulunamadı."}
         
     analysis = state["startup_analysis"]
     complaints = state["competitor_complaints"]
@@ -113,18 +101,22 @@ def find_matching_ai_model_node(state: ReverseState):
     keywords = llm.invoke(prompt).content
     print(f"  [Reverse] Arama kelimeleri: {keywords}")
     
-    results = models_collection.query(
-        query_texts=[keywords],
-        n_results=5
-    )
-    
     matching_models = []
-    if results and results["documents"]:
-        for i in range(len(results["documents"][0])):
-            doc = results["documents"][0][i]
-            meta = results["metadatas"][0][i]
-            meta["description"] = doc
-            matching_models.append(meta)
+    from tavily import TavilyClient
+    try:
+        tclient = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
+        results = tclient.search(
+            f"trending AI models APIs tools for {keywords.strip()} 2024 2025",
+            max_results=5, search_depth="basic"
+        )
+        for r in results.get("results", []):
+            matching_models.append({
+                "name": r.get("title", ""),
+                "description": r.get("content", "")[:300],
+                "url": r.get("url", ""),
+            })
+    except Exception as e:
+        print(f"  [Reverse] ⚠️ Tavily model arama hatası: {e}")
             
     return {"matching_models": matching_models}
 

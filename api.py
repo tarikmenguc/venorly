@@ -407,14 +407,24 @@ async def scan_endpoint(req: ScanRequest, request: Request):
             elif req.mode == "trends":
                 yield f"data: {json.dumps({'node': 'analyzing_trends', 'state': {'currentNode': 'Trendler aranıyor...'}})}\n\n"
                 
-                from agent.idea_agent import get_models_store, get_llm
+                from agent.idea_agent import get_llm
                 from langchain_core.messages import HumanMessage
+                from tavily import TavilyClient
                 
-                models_store = get_models_store()
                 query = req.category if req.category else "Trending AI Models"
-                docs = models_store.similarity_search(query, k=15)
                 
-                models_text = "\n".join([f"- {d.metadata.get('name', 'Bilinmeyen Model')}: (Kategori: {d.metadata.get('category', 'Genel')}) - {d.page_content[:150]}" for d in docs])
+                tclient = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
+                try:
+                    results = tclient.search(
+                        f"trending top AI models tools for {query} 2024 2025",
+                        max_results=10, search_depth="basic"
+                    )
+                    models_list = []
+                    for r in results.get("results", []):
+                        models_list.append(f"- {r.get('title', 'Bilinmeyen Model')}: {r.get('content', '')[:150]}")
+                    models_text = "\n".join(models_list)
+                except Exception as e:
+                    models_text = f"Tavily arama hatası: {e}"
                 
                 prompt = f"""Sen üst düzey bir Silikon Vadisi AI Trend Analistisin. 
 Aşağıdaki HuggingFace modellerine ve verilerine bakarak pazarın NEYE DOĞRU gittiğini, önümüzdeki 6 ay içinde hangi niş alanların patlayacağını anlatan çarpıcı ve vizyoner bir 'Trend Raporu' (Markdown formatında, çok şık) yaz.

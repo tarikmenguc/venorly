@@ -1,6 +1,7 @@
 """
 LangGraph Agentic RAG — Startup Idea Finder
 Faz 3: trending modeller → pazar eşleştirme → rakip şikayetleri → store yorumları → fırsat raporu
+Faz 18: ChromaDB kaldırıldı — tüm vektör aramaları Tavily web aramasıyla değiştirildi.
 """
 
 import os
@@ -9,8 +10,6 @@ import sys
 from typing import TypedDict, List, Optional
 
 from dotenv import load_dotenv
-from langchain_chroma import Chroma
-# HuggingFaceEmbeddings kaldırıldı — merkezî lib/embeddings.py kullanılıyor
 from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage
 from langgraph.graph import StateGraph, END
@@ -22,38 +21,10 @@ sys.path.insert(0, BASE_DIR)
 load_dotenv()
 
 # ──────────────────────────────────────────────
-# BAĞLANTI & MODEL KURULUMU
+# MODEL KURULUMU (ChromaDB kaldırıldı — Tavily kullanılıyor)
 # ──────────────────────────────────────────────
 
-CHROMA_DIR = os.path.join(BASE_DIR, "chroma_db")
-# Merkezî embedding modülü (Gemini Embedding 2)
-from lib.embeddings import get_embeddings
-
-_models_store = None
-_apps_store   = None
-_llm          = None
-
-
-def get_models_store():
-    global _models_store
-    if _models_store is None:
-        _models_store = Chroma(
-            collection_name="ai_models",
-            embedding_function=get_embeddings(),
-            persist_directory=CHROMA_DIR,
-        )
-    return _models_store
-
-
-def get_apps_store():
-    global _apps_store
-    if _apps_store is None:
-        _apps_store = Chroma(
-            collection_name="startup_apps",
-            embedding_function=get_embeddings(),
-            persist_directory=CHROMA_DIR,
-        )
-    return _apps_store
+_llm = None
 
 
 def get_llm(provider="groq", temp=0.7):
@@ -98,27 +69,32 @@ class AgentState(TypedDict):
 # ──────────────────────────────────────────────
 
 def fetch_trending_models_node(state: AgentState) -> AgentState:
-    """ChromaDB 'ai_models' koleksiyonundan trend modelleri çeker.
-    Daha fazla sonuç çeker ve rastgele bir subset seçer → her seferinde farklı."""
+    """Tavily web aramasıyla trend AI modellerini/araçlarını bulur."""
     query = state["user_category"] or "trending AI model"
-    print(f"[Agent] Node 1 → fetch_trending_models | query: '{query}'")
+    print(f"[Agent] Node 1 → fetch_trending_models (Tavily) | query: '{query}'")
 
     try:
-        results = get_models_store().similarity_search(query, k=25)
+        from tavily import TavilyClient
+        tavily = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
+        results = tavily.search(
+            f"trending AI models tools for {query} 2024 2025",
+            max_results=10,
+            search_depth="basic"
+        )
     except Exception as e:
-        print(f"[Agent] ❌ Model arama hatası: {e}")
+        print(f"[Agent] ❌ Tavily model arama hatası: {e}")
         return {**state, "trending_models": [], "error": str(e)}
 
     all_models = []
-    for r in results:
+    for r in results.get("results", []):
         all_models.append({
-            "content":   r.page_content,
-            "name":      r.metadata.get("name", ""),
-            "model_id":  r.metadata.get("model_id", ""),
-            "category":  r.metadata.get("category", ""),
-            "source":    r.metadata.get("source", ""),
-            "downloads": r.metadata.get("downloads", "0"),
-            "url":       r.metadata.get("url", ""),
+            "content":   r.get("content", "")[:300],
+            "name":      r.get("title", ""),
+            "model_id":  "",
+            "category":  query,
+            "source":    "tavily_web",
+            "downloads": "N/A",
+            "url":       r.get("url", ""),
         })
 
     sample_size = min(8, len(all_models))
@@ -129,36 +105,41 @@ def fetch_trending_models_node(state: AgentState) -> AgentState:
 
 
 # ──────────────────────────────────────────────
-# NODE 2: Pazarla Eşleştir
+# NODE 2: Pazarla Eşleştir (Tavily ile)
 # ──────────────────────────────────────────────
 
 def match_to_market_node(state: AgentState) -> AgentState:
-    """Model kategorisiyle uyumlu para kazanan uygulamaları bulur."""
+    """Tavily web aramasıyla pazardaki mevcut uygulamaları/SaaS ürünlerini bulur."""
     if not state["trending_models"]:
         print("[Agent] Node 2 → match_to_market | model yok, atlanıyor.")
         return {**state, "matching_apps": []}
 
-    categories = list({m["category"] for m in state["trending_models"] if m["category"]})
     model_names = " ".join([m["name"] for m in state["trending_models"][:3]])
-    search_query = f"{state['user_category']} {' '.join(categories[:3])} {model_names}"
-    print(f"[Agent] Node 2 → match_to_market | query: '{search_query[:80]}...'")
+    search_query = f"{state['user_category']} SaaS startup app {model_names}"
+    print(f"[Agent] Node 2 → match_to_market (Tavily) | query: '{search_query[:80]}...'")
 
     try:
-        results = get_apps_store().similarity_search(search_query, k=15)
+        from tavily import TavilyClient
+        tavily = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
+        results = tavily.search(
+            f"existing SaaS apps startups using {search_query}",
+            max_results=10,
+            search_depth="basic"
+        )
     except Exception as e:
         print(f"[Agent] ❌ App arama hatası: {e}")
         return {**state, "matching_apps": [], "error": str(e)}
 
     all_apps = []
-    for r in results:
+    for r in results.get("results", []):
         all_apps.append({
-            "content":  r.page_content,
-            "name":     r.metadata.get("name", ""),
-            "mrr":      r.metadata.get("mrr", ""),
-            "votes":    r.metadata.get("votes", "0"),
-            "category": r.metadata.get("category", ""),
-            "source":   r.metadata.get("source", ""),
-            "url":      r.metadata.get("url", ""),
+            "content":  r.get("content", "")[:300],
+            "name":     r.get("title", ""),
+            "mrr":      "",
+            "votes":    "0",
+            "category": state["user_category"],
+            "source":   "tavily_web",
+            "url":      r.get("url", ""),
         })
 
     sample_size = min(6, len(all_apps))

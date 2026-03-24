@@ -31,7 +31,7 @@ from langgraph.graph import StateGraph, END
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE_DIR)
 
-from agent.idea_agent import get_llm, get_models_store, get_apps_store
+from agent.idea_agent import get_llm
 from scrapers.reality_intel import check_upwork_rss, scan_reddit_desperation, scrape_github_gui_requests
 from agent.buyer_matcher import BuyerMatcherAgent
 
@@ -86,26 +86,42 @@ def research_agent_node(state: OrchestratorState) -> OrchestratorState:
     trending_models = []
     known_apps = []
 
-    # 1. ChromaDB'den AI modelleri + mevcut uygulamaları çek
+    # 1. Tavily ile AI modelleri + mevcut uygulamaları çek (ChromaDB yerine)
     try:
-        models_store = get_models_store()
-        apps_store = get_apps_store()
+        from tavily import TavilyClient
+        tavily_client = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
 
-        m_docs = models_store.similarity_search(category, k=10)
-        for d in m_docs:
-            m = d.metadata.copy()
-            m['description'] = d.page_content
-            trending_models.append(m)
+        # Modelleri Çek
+        m_results = tavily_client.search(
+            f"trending AI models tools for {category} 2024 2025",
+            max_results=8, search_depth="basic"
+        )
+        for r in m_results.get("results", []):
+            trending_models.append({
+                "name": r.get("title", ""),
+                "description": r.get("content", "")[:300],
+                "category": category,
+                "source": "tavily_web",
+                "url": r.get("url", ""),
+            })
 
-        a_docs = apps_store.similarity_search(category, k=10)
-        for d in a_docs:
-            a = d.metadata.copy()
-            a['description'] = d.page_content
-            known_apps.append(a)
+        # App'leri Çek
+        a_results = tavily_client.search(
+            f"SaaS startups apps using {category} AI",
+            max_results=8, search_depth="basic"
+        )
+        for r in a_results.get("results", []):
+            known_apps.append({
+                "name": r.get("title", ""),
+                "description": r.get("content", "")[:300],
+                "category": category,
+                "source": "tavily_web",
+                "url": r.get("url", ""),
+            })
 
-        log.append(f"  ✅ ChromaDB: {len(trending_models)} model, {len(known_apps)} app")
+        log.append(f"  ✅ Tavily: {len(trending_models)} model, {len(known_apps)} app")
     except Exception as e:
-        log.append(f"  ⚠️ ChromaDB hatası: {e}")
+        log.append(f"  ⚠️ Tavily web arama hatası: {e}")
 
     # 2. Araştırma Özeti oluştur (LLM ile)
     models_text = ", ".join([m.get("name", "") for m in trending_models[:5]])
