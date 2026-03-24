@@ -19,3 +19,5 @@ fpdf2
 markdown
 sse-starlette
 pydantic
+langchain-community
+feedparser
