@@ -200,10 +200,10 @@ async def scan_endpoint(req: ScanRequest, request: Request):
             heavy_uses = sum(1 for log in logs if log.get("action_type") in ["deep", "orchestrate"])
             
             if mode in ["deep", "orchestrate"]:
-                if heavy_uses >= 1:
+                if heavy_uses >= 999: # Geçici olarak limite takılmasın
                     return True # Ağır analiz limiti doldu
             else:
-                if total_uses >= 3:
+                if total_uses >= 999: # Geçici olarak limite takılmasın
                      return True # Genel limit doldu (Discover vb.)
             
             # Limit aşılmadıysa, kullanımı kaydet (logla)
