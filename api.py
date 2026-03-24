@@ -6,12 +6,9 @@ from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from agent.idea_agent import idea_agent
-from agent.deep_agent import deep_agent
-from agent.reverse_agent import reverse_agent
-from agent.orchestrator import orchestrator_agent
-from scrapers.automation_intel import collect_automation_intelligence
-from scrapers.producthunt_gaps import find_product_gaps
+# Heavy agent/scraper imports are LAZY-LOADED inside endpoints
+# to allow uvicorn to bind the port instantly on Render.com
+# (importing them here blocks startup for 60+ seconds → port timeout)
 
 app = FastAPI(title="Startup Idea Finder API")
 
@@ -228,6 +225,14 @@ async def scan_endpoint(req: ScanRequest, request: Request):
     # --- RATE LIMITING Bitişi ---
 
     def event_generator():
+        # Lazy imports — only loaded when a scan request arrives
+        from agent.idea_agent import idea_agent
+        from agent.deep_agent import deep_agent
+        from agent.reverse_agent import reverse_agent
+        from agent.orchestrator import orchestrator_agent
+        from scrapers.automation_intel import collect_automation_intelligence
+        from scrapers.producthunt_gaps import find_product_gaps
+
         try:
             if req.mode == "discover" or req.mode == "category":
                 initial_state = {
