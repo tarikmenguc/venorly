@@ -21,3 +21,4 @@ sse-starlette
 pydantic
 langchain-community
 feedparser
+langchain-google-genai
