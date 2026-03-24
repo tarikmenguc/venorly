@@ -16,5 +16,6 @@ fastapi
 uvicorn
 supabase
 fpdf2
+markdown
 sse-starlette
 pydantic
