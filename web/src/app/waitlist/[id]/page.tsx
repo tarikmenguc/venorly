@@ -4,7 +4,7 @@ import WaitlistClient from './WaitlistClient';
 
 export default async function WaitlistPage({ params }: { params: Promise<{ id: string }> }) {
     const { id } = await params;
-    const waitlist = WaitlistDB.get(id);
+    const waitlist = await WaitlistDB.get(id);
 
     if (!waitlist) {
         notFound();
