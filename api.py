@@ -12,6 +12,10 @@ from pydantic import BaseModel
 
 app = FastAPI(title="Startup Idea Finder API")
 
+@app.get("/api/health")
+async def health_check():
+    return {"status": "ok", "message": "Backend is running"}
+
 # Allow Next.js frontend to communicate with this backend
 app.add_middleware(
     CORSMiddleware,
@@ -225,13 +229,25 @@ async def scan_endpoint(req: ScanRequest, request: Request):
     # --- RATE LIMITING Bitişi ---
 
     def event_generator():
+        print(f"[DEBUG] event_generator STARTED for mode={req.mode}")
+        yield f"data: {json.dumps({'node': 'init', 'state': {'currentNode': 'Modüller yükleniyor...'}})}\n\n"
+
         # Lazy imports — only loaded when a scan request arrives
-        from agent.idea_agent import idea_agent
-        from agent.deep_agent import deep_agent
-        from agent.reverse_agent import reverse_agent
-        from agent.orchestrator import orchestrator_agent
-        from scrapers.automation_intel import collect_automation_intelligence
-        from scrapers.producthunt_gaps import find_product_gaps
+        try:
+            print("[DEBUG] Importing agents...")
+            from agent.idea_agent import idea_agent
+            from agent.deep_agent import deep_agent
+            from agent.reverse_agent import reverse_agent
+            from agent.orchestrator import orchestrator_agent
+            from scrapers.automation_intel import collect_automation_intelligence
+            from scrapers.producthunt_gaps import find_product_gaps
+            print("[DEBUG] All imports successful!")
+        except Exception as e:
+            print(f"[DEBUG] IMPORT ERROR: {e}")
+            yield f"data: {json.dumps({'error': f'Import hatası: {str(e)}'})}\n\n"
+            return
+
+        yield f"data: {json.dumps({'node': 'loaded', 'state': {'currentNode': 'Agent hazır, analiz başlıyor...'}})}\n\n"
 
         try:
             if req.mode == "discover" or req.mode == "category":
