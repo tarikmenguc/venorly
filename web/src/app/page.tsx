@@ -52,14 +52,19 @@ export default function HomeDashboard() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
 
+      let buffer = "";
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value, { stream: true });
-        const events = chunk.split("\n\n");
-
-        for (const ev of events) {
+        buffer += decoder.decode(value, { stream: true });
+        
+        let boundaryIndex;
+        while ((boundaryIndex = buffer.indexOf("\n\n")) >= 0) {
+          const ev = buffer.slice(0, boundaryIndex);
+          buffer = buffer.slice(boundaryIndex + 2);
+          
           if (ev.startsWith("data: ")) {
             try {
               const dataStr = ev.replace("data: ", "");
@@ -92,7 +97,7 @@ export default function HomeDashboard() {
                 }
               }
             } catch (e) {
-              // Ignore parse errors on incomplete chunks
+              console.error("JSON parse error for SSE chunk", e);
             }
           }
         }
