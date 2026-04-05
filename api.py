@@ -55,10 +55,12 @@ async def get_scan_pdf(scan_id: str):
 # ============ AI CHAT (Fikir Danışmanı) ============
 
 CHAT_LIMIT_PER_SCAN = 15
+FREEFORM_LIMIT = 10
 
 class ChatRequest(BaseModel):
-    scan_id: str
+    scan_id: str = ""   # Boş olursa "freeform" (bağımsız) mod
     message: str
+    session_id: str = ""  # Freeform modda oturum takibi
 
 @app.get("/api/chat/{scan_id}")
 async def get_chat_history(scan_id: str):
@@ -71,47 +73,65 @@ async def get_chat_history(scan_id: str):
 
 @app.post("/api/chat")
 async def chat_endpoint(req: ChatRequest):
-    """Rapor bağlamında AI ile sohbet — streaming SSE."""
+    """Rapor bağlamında veya bağımsız (freeform) AI sohbet — streaming SSE."""
     try:
+        # Freeform vs report-bound mod belirleme
+        is_freeform = not req.scan_id or req.scan_id.strip() == ""
+        chat_id = req.scan_id if not is_freeform else (req.session_id or "freeform_default")
+        limit = FREEFORM_LIMIT if is_freeform else CHAT_LIMIT_PER_SCAN
+
         # 1. Mesaj limiti kontrolü
-        count_res = supabase.table("chat_messages").select("id", count="exact").eq("scan_id", req.scan_id).eq("role", "user").execute()
+        count_res = supabase.table("chat_messages").select("id", count="exact").eq("scan_id", chat_id).eq("role", "user").execute()
         user_msg_count = count_res.count or 0
-        if user_msg_count >= CHAT_LIMIT_PER_SCAN:
+        if user_msg_count >= limit:
             return Response(
-                content=json.dumps({"error": f"Bu tarama için mesaj limitinize ({CHAT_LIMIT_PER_SCAN}) ulaştınız."}),
+                content=json.dumps({"error": f"Mesaj limitinize ({limit}) ulaştınız."}),
                 status_code=429,
                 media_type="application/json"
             )
 
-        # 2. Rapor bağlamını çek
-        scan_res = supabase.table("scans").select("category, mode, full_report, report_preview").eq("id", req.scan_id).single().execute()
-        scan_data = scan_res.data
-
+        # 2. Rapor bağlamını çek (varsa)
         report_context = ""
-        if scan_data:
-            fr = scan_data.get("full_report", {})
-            if isinstance(fr, dict):
-                report_context = fr.get("investment_memo", "") or fr.get("final_report", "") or scan_data.get("report_preview", "")
-            elif isinstance(fr, str):
-                report_context = fr
-            else:
-                report_context = scan_data.get("report_preview", "")
+        scan_data = None
+        if not is_freeform:
+            scan_res = supabase.table("scans").select("category, mode, full_report, report_preview").eq("id", req.scan_id).single().execute()
+            scan_data = scan_res.data
+            if scan_data:
+                fr = scan_data.get("full_report", {})
+                if isinstance(fr, dict):
+                    report_context = fr.get("investment_memo", "") or fr.get("final_report", "") or scan_data.get("report_preview", "")
+                elif isinstance(fr, str):
+                    report_context = fr
+                else:
+                    report_context = scan_data.get("report_preview", "")
 
         # 3. Geçmiş mesajları al
-        history_res = supabase.table("chat_messages").select("role, content").eq("scan_id", req.scan_id).order("created_at").execute()
+        history_res = supabase.table("chat_messages").select("role, content").eq("scan_id", chat_id).order("created_at").execute()
         history = history_res.data or []
 
         # 4. Kullanıcı mesajını kaydet
         supabase.table("chat_messages").insert({
-            "scan_id": req.scan_id,
+            "scan_id": chat_id,
             "role": "user",
             "content": req.message
         }).execute()
 
-        # 5. LLM çağrısı (streaming)
+        # 5. System prompt seçimi
         from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
-        system_prompt = f"""Sen "Startup Idea Finder" uygulamasının yerleşik AI danışmanısın. 
+        if is_freeform:
+            system_prompt = """Sen deneyimli bir startup danışmanı ve Y Combinator mentörüsün.
+Kullanıcılar sana SaaS fikirleri, pazar fırsatları ve girişimcilik hakkında sorular soruyor.
+
+KURALLAR:
+- Kısa, net ve aksiyon odaklı cevaplar ver (max 300 kelime).
+- Türkçe cevap ver.
+- "Friction Economy" çerçevesini kullan: Sadece ağrı kesici fikirler (B2B, zaman kazandıran).
+- Fikir zayıfsa nazikçe ama dürüstçe söyle ve alternatif öner.
+- Emojileri kullanarak cevapları okunabilir yap.
+- Somut tavsiyeler ver: Fiyat, hedef kitle, teknik stack, MVP süresi gibi."""
+        else:
+            system_prompt = f"""Sen "Startup Idea Finder" uygulamasının yerleşik AI danışmanısın. 
 Kullanıcı bir pazar araştırması yaptı ve aşağıdaki raporu aldı. Şimdi seninle bu rapor hakkında konuşmak istiyor.
 
 KURALLAR:
@@ -151,12 +171,12 @@ Mod: {scan_data.get('mode', 'Bilinmiyor') if scan_data else 'Bilinmiyor'}
 
                 # Stream bittikten sonra assistant mesajını kaydet
                 supabase.table("chat_messages").insert({
-                    "scan_id": req.scan_id,
+                    "scan_id": chat_id,
                     "role": "assistant",
                     "content": full_response
                 }).execute()
 
-                yield f"data: {json.dumps({'done': True, 'remaining': CHAT_LIMIT_PER_SCAN - user_msg_count - 1})}\n\n"
+                yield f"data: {json.dumps({'done': True, 'remaining': limit - user_msg_count - 1})}\n\n"
             except Exception as e:
                 yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
