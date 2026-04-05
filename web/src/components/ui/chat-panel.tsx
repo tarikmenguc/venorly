@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import {
   MessageSquare, X, Send, Loader2, Sparkles,
-  DollarSign, Target, Wrench, BarChart3, Swords
+  DollarSign, Target, Wrench, BarChart3, Swords, Lightbulb
 } from "lucide-react";
 
 interface ChatMessage {
@@ -12,11 +12,12 @@ interface ChatMessage {
 }
 
 interface ChatPanelProps {
-  scanId: string | null;
+  scanId?: string | null;
   reportContext?: string;
+  alwaysVisible?: boolean;  // true = ana sayfada her zaman göster
 }
 
-const QUICK_PROMPTS = [
+const REPORT_PROMPTS = [
   { icon: DollarSign, label: "Fiyatlandırma stratejisi öner", prompt: "Bu fikir için en uygun fiyatlandırma stratejisi ne olmalı? Freemium mu, aylık abonelik mi, kullanım başına ücret mi?" },
   { icon: Target, label: "İlk 100 müşteriyi nasıl bulurum?", prompt: "Bu ürün için ilk 100 müşteriyi nasıl bulabilirim? Hangi kanalları kullanmalıyım?" },
   { icon: Wrench, label: "Teknik mimari nasıl olmalı?", prompt: "Bu fikri geliştirmek için teknik mimari nasıl olmalı? Hangi teknolojileri kullanmalıyım?" },
@@ -24,22 +25,34 @@ const QUICK_PROMPTS = [
   { icon: Swords, label: "Rakiplerden nasıl farklılaşırım?", prompt: "Rakiplerin zayıf noktaları neler ve ben nasıl farklılaşabilirim? Unfair advantage öner." },
 ];
 
-export function ChatPanel({ scanId, reportContext }: ChatPanelProps) {
+const FREEFORM_PROMPTS = [
+  { icon: Lightbulb, label: "SaaS fikrim var, değerlendir", prompt: "Benim bir SaaS fikrim var. Sana anlatayım, güçlü ve zayıf yönlerini değerlendir." },
+  { icon: Target, label: "Hangi nişlerde fırsat var?", prompt: "2025'te en kazançlı Micro-SaaS nişleri hangileri? B2B odaklı, ağrı kesici fikirler öner." },
+  { icon: DollarSign, label: "Fiyatlandırma stratejisi", prompt: "Bir Micro-SaaS ürün fiyatlandırması nasıl yapılmalı? Freemium vs paid stratejilerini karşılaştır." },
+  { icon: Wrench, label: "MVP nasıl geliştirilir?", prompt: "İlk MVP'mi 2 haftada nasıl geliştirebilirim? Hangi araçları kullanmalıyım?" },
+  { icon: BarChart3, label: "İlk müşterimi nasıl bulurum?", prompt: "Hiç ağım yokken ilk 10 müşteriyi nasıl bulabilirim? Ücretsiz yöntemler öner." },
+];
+
+export function ChatPanel({ scanId, reportContext, alwaysVisible = false }: ChatPanelProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [remaining, setRemaining] = useState(15);
   const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [sessionId] = useState(() => `freeform_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const isFreeform = !scanId;
+  const quickPrompts = isFreeform ? FREEFORM_PROMPTS : REPORT_PROMPTS;
 
   // Scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Load chat history when panel opens
+  // Load chat history when panel opens (only for report mode)
   useEffect(() => {
     if (isOpen && scanId && !historyLoaded) {
       loadHistory();
@@ -72,7 +85,7 @@ export function ChatPanel({ scanId, reportContext }: ChatPanelProps) {
   }
 
   async function sendMessage(text: string) {
-    if (!text.trim() || !scanId || isStreaming || remaining <= 0) return;
+    if (!text.trim() || isStreaming || remaining <= 0) return;
 
     const userMsg: ChatMessage = { role: "user", content: text.trim() };
     setMessages(prev => [...prev, userMsg]);
@@ -87,7 +100,11 @@ export function ChatPanel({ scanId, reportContext }: ChatPanelProps) {
       const res = await fetch(`${API_URL}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scan_id: scanId, message: text.trim() }),
+        body: JSON.stringify({
+          scan_id: scanId || "",
+          session_id: isFreeform ? sessionId : "",
+          message: text.trim(),
+        }),
       });
 
       if (res.status === 429) {
@@ -153,7 +170,9 @@ export function ChatPanel({ scanId, reportContext }: ChatPanelProps) {
     }
   }
 
-  if (!scanId) return null;
+  // Freeform modda veya alwaysVisible=true ise her zaman göster
+  // Report modda scanId olmalı
+  if (!alwaysVisible && !scanId) return null;
 
   return (
     <>
@@ -164,7 +183,7 @@ export function ChatPanel({ scanId, reportContext }: ChatPanelProps) {
           className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-5 py-3 rounded-full bg-gradient-to-r from-purple-600 to-violet-500 text-white font-semibold shadow-[0_0_30px_-5px_rgba(168,85,247,0.5)] hover:scale-105 transition-all"
         >
           <MessageSquare className="w-5 h-5" />
-          AI ile Tartış
+          {isFreeform ? "AI ile Fikir Tartış" : "AI ile Tartış"}
         </button>
       )}
 
@@ -186,10 +205,16 @@ export function ChatPanel({ scanId, reportContext }: ChatPanelProps) {
         <div className="flex items-center justify-between px-5 py-4 border-b border-white/5 bg-gradient-to-r from-purple-950/20 to-transparent">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-gradient-to-br from-purple-600 to-violet-500">
-              <Sparkles className="w-4 h-4 text-white" />
+              {isFreeform ? (
+                <Lightbulb className="w-4 h-4 text-white" />
+              ) : (
+                <Sparkles className="w-4 h-4 text-white" />
+              )}
             </div>
             <div>
-              <h3 className="text-sm font-bold text-white">AI Fikir Danışmanı</h3>
+              <h3 className="text-sm font-bold text-white">
+                {isFreeform ? "AI Startup Danışmanı" : "AI Fikir Danışmanı"}
+              </h3>
               <p className="text-[11px] text-muted-foreground">
                 {remaining > 0 ? `${remaining} mesaj hakkınız kaldı` : "Mesaj limitiniz doldu"}
               </p>
@@ -208,9 +233,11 @@ export function ChatPanel({ scanId, reportContext }: ChatPanelProps) {
           {messages.length === 0 && !isStreaming && (
             <div className="space-y-3">
               <p className="text-sm text-muted-foreground text-center py-4">
-                Rapor hakkında sormak istediğin bir şey var mı? 👇
+                {isFreeform
+                  ? "Bir SaaS fikrin mi var? Anlat, birlikte değerlendirelim! 💡"
+                  : "Rapor hakkında sormak istediğin bir şey var mı? 👇"}
               </p>
-              {QUICK_PROMPTS.map((qp, idx) => (
+              {quickPrompts.map((qp, idx) => (
                 <button
                   key={idx}
                   onClick={() => sendMessage(qp.prompt)}
@@ -252,7 +279,7 @@ export function ChatPanel({ scanId, reportContext }: ChatPanelProps) {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && sendMessage(input)}
-              placeholder={remaining > 0 ? "Bir soru sor..." : "Mesaj limitiniz doldu"}
+              placeholder={remaining > 0 ? (isFreeform ? "Fikrini veya sorununu yaz..." : "Rapor hakkında sor...") : "Mesaj limitiniz doldu"}
               disabled={isStreaming || remaining <= 0}
               className="flex-1 px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-white/30 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500/50 disabled:opacity-50"
             />
