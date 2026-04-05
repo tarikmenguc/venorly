@@ -2,9 +2,9 @@
 
 import React, { useEffect, useState } from "react"
 import { motion } from "framer-motion"
-import Link from "next/link"
 import { LucideIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { UserButton, SignInButton, useUser } from "@clerk/nextjs"
 
 interface NavItem {
     name: string
@@ -23,6 +23,7 @@ interface NavBarProps {
 export function NavBar({ items, className, onTabChange, activeMode }: NavBarProps) {
     const [activeTab, setActiveTab] = useState(items[0].name)
     const [isMobile, setIsMobile] = useState(false)
+    const { isSignedIn, user } = useUser()
 
     useEffect(() => {
         const handleResize = () => {
@@ -90,6 +91,25 @@ export function NavBar({ items, className, onTabChange, activeMode }: NavBarProp
                         </a>
                     )
                 })}
+
+                {/* Auth Section */}
+                <div className="ml-2 pl-2 border-l border-white/10 flex items-center">
+                    {isSignedIn ? (
+                        <UserButton
+                            appearance={{
+                                elements: {
+                                    avatarBox: "w-8 h-8",
+                                },
+                            }}
+                        />
+                    ) : (
+                        <SignInButton mode="modal">
+                            <button className="text-sm font-semibold px-4 py-2 rounded-full text-foreground/80 hover:text-primary hover:bg-white/5 transition-colors">
+                                Giriş Yap
+                            </button>
+                        </SignInButton>
+                    )}
+                </div>
             </div>
         </div>
     )
