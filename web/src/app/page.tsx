@@ -312,8 +312,12 @@ export default function HomeDashboard() {
         )}
       </div>
 
-      {/* AI Chat Panel — rapor varsa göster */}
-      {report && <ChatPanel scanId={scanId} reportContext={report} />}
+      {/* AI Chat Panel — her zaman göster: rapor varsa rapor modu, yoksa bağımsız mod */}
+      <ChatPanel
+        scanId={scanId}
+        reportContext={report}
+        alwaysVisible={true}
+      />
     </main>
   );
 }
