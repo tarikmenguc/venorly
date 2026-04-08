@@ -3,19 +3,22 @@ import { supabase } from './supabase';
 export interface Alert {
     id: string;
     keyword: string;
+    email: string;
     channels: string[];
-    frequency: 'daily' | 'weekly' | 'realtime';
+    frequency: 'daily' | 'weekly';
     is_active: boolean;
+    last_triggered_at: string | null;
     created_at: string;
 }
 
 export const AlertDB = {
-    create: async (keyword: string, channels: string[], frequency: string): Promise<Alert | null> => {
+    create: async (keyword: string, email: string, channels: string[], frequency: string): Promise<Alert | null> => {
         const newAlert = {
             keyword,
+            email,
             channels: channels || ['reddit', 'github', 'huggingface'],
             frequency: frequency || 'daily',
-            is_active: true
+            is_active: true,
         };
 
         const { data, error } = await supabase
@@ -57,7 +60,7 @@ export const AlertDB = {
         }
         return true;
     },
-    
+
     delete: async (id: string): Promise<boolean> => {
         const { error } = await supabase
             .from('alerts')
@@ -69,5 +72,5 @@ export const AlertDB = {
             return false;
         }
         return true;
-    }
+    },
 };

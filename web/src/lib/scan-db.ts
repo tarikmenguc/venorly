@@ -100,6 +100,68 @@ export const ScanDB = {
         return data as ScanRecord[];
     },
 
+    // ── GALLERY METHODS ──────────────────────────────────────
+
+    getGalleryScans: async (
+        page: number = 1,
+        perPage: number = 12,
+        category: string = "",
+        sort: "score" | "date" = "score"
+    ): Promise<{ items: Record<string, unknown>[]; total: number; pages: number }> => {
+        try {
+            const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+            const params = new URLSearchParams({
+                page: String(page),
+                per_page: String(perPage),
+                sort,
+                ...(category ? { category } : {}),
+            });
+            const res = await fetch(`${API_URL}/api/gallery?${params}`);
+            if (!res.ok) return { items: [], total: 0, pages: 0 };
+            return await res.json();
+        } catch (e) {
+            console.error("getGalleryScans error:", e);
+            return { items: [], total: 0, pages: 0 };
+        }
+    },
+
+    getGalleryById: async (id: string): Promise<Record<string, unknown> | null> => {
+        try {
+            const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+            const res = await fetch(`${API_URL}/api/gallery/${id}`);
+            if (!res.ok) return null;
+            return await res.json();
+        } catch (e) {
+            console.error("getGalleryById error:", e);
+            return null;
+        }
+    },
+
+    getGalleryCategories: async (): Promise<(string | Record<string, unknown>)[]> => {
+        try {
+            const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+            const res = await fetch(`${API_URL}/api/gallery/categories`);
+            if (!res.ok) return [];
+            const data = await res.json();
+            return data.categories || [];
+        } catch (e) {
+            console.error("getGalleryCategories error:", e);
+            return [];
+        }
+    },
+
+    getGalleryStats: async (): Promise<{ total_ideas: number; avg_score: number; top_category: string | null }> => {
+        try {
+            const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+            const res = await fetch(`${API_URL}/api/gallery/stats`);
+            if (!res.ok) return { total_ideas: 0, avg_score: 0, top_category: null };
+            return await res.json();
+        } catch (e) {
+            console.error("getGalleryStats error:", e);
+            return { total_ideas: 0, avg_score: 0, top_category: null };
+        }
+    },
+
     getStats: async () => {
         const { data: records, error } = await supabase
             .from('scans')
