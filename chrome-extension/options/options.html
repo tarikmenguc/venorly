@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Startup Idea Finder — Ayarlar</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      width: 420px;
+      min-height: 300px;
+      background: #0a0a0f;
+      color: #e5e5f0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px;
+      padding: 24px;
+    }
+
+    h1 {
+      font-size: 18px;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 4px;
+    }
+    .subtitle {
+      font-size: 12px;
+      color: #6b7280;
+      margin-bottom: 24px;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 18px;
+    }
+
+    label {
+      font-size: 12px;
+      font-weight: 600;
+      color: #9ca3af;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    input[type="text"], input[type="url"] {
+      width: 100%;
+      padding: 10px 12px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 8px;
+      color: #e5e5f0;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    input:focus {
+      border-color: #7c3aed;
+    }
+
+    .hint {
+      font-size: 11px;
+      color: #4b5563;
+    }
+
+    .save-btn {
+      width: 100%;
+      padding: 11px;
+      background: linear-gradient(135deg, #7c3aed, #6d28d9);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+      margin-top: 8px;
+    }
+
+    .save-btn:hover { opacity: 0.88; }
+
+    .success {
+      margin-top: 12px;
+      padding: 9px 12px;
+      background: rgba(52, 211, 153, 0.1);
+      border: 1px solid rgba(52, 211, 153, 0.25);
+      border-radius: 8px;
+      color: #6ee7b7;
+      font-size: 12px;
+      display: none;
+    }
+
+    .divider {
+      height: 1px;
+      background: rgba(255,255,255,0.06);
+      margin: 20px 0;
+    }
+
+    .section-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #6b7280;
+      margin-bottom: 14px;
+    }
+  </style>
+</head>
+<body>
+  <h1>⚙️ Ayarlar</h1>
+  <p class="subtitle">Startup Idea Finder Chrome Extension</p>
+
+  <div class="section-title">🔌 Backend Bağlantısı</div>
+
+  <div class="field">
+    <label>API URL (FastAPI Backend)</label>
+    <input type="url" id="apiUrl" placeholder="http://127.0.0.1:8000" />
+    <span class="hint">Yerel geliştirme için varsayılan: http://127.0.0.1:8000</span>
+  </div>
+
+  <div class="divider"></div>
+  <div class="section-title">🔑 Kimlik Doğrulama</div>
+
+  <div class="field">
+    <label>API Key (Extension Key)</label>
+    <input type="text" id="apiKey" placeholder="Opsiyonel — .env'deki EXTENSION_API_KEY" />
+    <span class="hint">Backend EXTENSION_API_KEY değeri. Boş bırakılabilir (dev modunda).</span>
+  </div>
+
+  <div class="divider"></div>
+  <div class="section-title">🌐 Uygulama</div>
+
+  <div class="field">
+    <label>Uygulama URL'si (Next.js Frontend)</label>
+    <input type="url" id="appUrl" placeholder="http://localhost:3000" />
+    <span class="hint">Tam raporu açmak için kullanılır.</span>
+  </div>
+
+  <button class="save-btn" id="saveBtn">💾 Ayarları Kaydet</button>
+  <div class="success" id="successMsg">✅ Ayarlar kaydedildi!</div>
+
+  <script src="options.js"></script>
+</body>
+</html>

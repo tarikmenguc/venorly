@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Startup Idea Finder</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="app">
+    <!-- Header -->
+    <div class="header">
+      <div class="logo">
+        <span class="logo-icon">💡</span>
+        <span class="logo-text">Startup Idea Finder</span>
+      </div>
+      <a class="settings-btn" id="openSettings" title="Ayarlar">⚙️</a>
+    </div>
+
+    <!-- Page Info Card -->
+    <div class="page-info" id="pageInfo">
+      <div class="page-domain" id="pageDomain">Yükleniyor...</div>
+      <div class="page-title" id="pageTitle"></div>
+      <div class="page-category">
+        <span class="category-label">Tahmin edilen kategori:</span>
+        <span class="category-value" id="pageCategory">–</span>
+      </div>
+    </div>
+
+    <!-- Scan Button -->
+    <button class="scan-btn" id="scanBtn" disabled>
+      <span class="scan-btn-icon">🔍</span>
+      <span class="scan-btn-text">Rakip Analizi Başlat</span>
+    </button>
+
+    <!-- Status -->
+    <div class="status-bar" id="statusBar" style="display: none;">
+      <div class="status-spinner" id="statusSpinner"></div>
+      <span class="status-text" id="statusText">Bağlanıyor...</span>
+    </div>
+
+    <!-- Progress steps -->
+    <div class="progress-steps" id="progressSteps" style="display: none;">
+      <div class="step" id="step-init">⏳ Başlatılıyor...</div>
+      <div class="step" id="step-research">🔍 Pazar Araştırması</div>
+      <div class="step" id="step-analysis">🧠 Analiz</div>
+      <div class="step" id="step-report">📄 Rapor Oluşturuluyor</div>
+    </div>
+
+    <!-- Error -->
+    <div class="error-box" id="errorBox" style="display: none;">
+      <span class="error-icon">⚠️</span>
+      <span class="error-text" id="errorText"></span>
+    </div>
+
+    <!-- Result -->
+    <div class="result-section" id="resultSection" style="display: none;">
+      <div class="result-header">
+        <span class="result-icon">✨</span>
+        <span class="result-title">Analiz Tamamlandı</span>
+      </div>
+      <div class="result-preview" id="resultPreview"></div>
+      <div class="result-actions">
+        <a class="action-btn primary" id="openFullReport" href="#" target="_blank">
+          📄 Tam Raporu Gör
+        </a>
+        <button class="action-btn secondary" id="copyReport">
+          📋 Kopyala
+        </button>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      <span>by Startup Idea Finder</span>
+      <a id="openApp" href="#" target="_blank">Uygulamayı Aç →</a>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
