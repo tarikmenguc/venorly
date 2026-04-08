@@ -29,6 +29,7 @@ class DeepAgentState(TypedDict):
     buyer_leads: List[dict]
     automation_signals: List[dict]
     product_gaps: List[dict]
+    seo_data: dict
     error: Optional[str]
 
 tavily_search = TavilySearchResults(max_results=3)
@@ -72,7 +73,12 @@ def init_research_node(state: DeepAgentState) -> DeepAgentState:
                 "url": r.get("url", ""),
             })
             
-        return {**state, "trending_models": trending_models, "known_apps": known_apps}
+        # SEO / Google Trends verisi
+        from scrapers.google_trends import get_search_volume, generate_seo_keywords
+        seo_keywords = generate_seo_keywords(state["target_category"])
+        seo_data = get_search_volume(seo_keywords)
+
+        return {**state, "trending_models": trending_models, "known_apps": known_apps, "seo_data": seo_data}
     except Exception as e:
         print(f"[DeepResearch] ❌ Init Hatası: {e}")
         return {**state, "error": str(e)}
@@ -95,7 +101,7 @@ def brainstorm_angles_node(state: DeepAgentState) -> DeepAgentState:
         for s in auto_signals[:10]:
             auto_lines.append(f"- [{s.get('source')}] {s.get('title', '')[:100]}")
         auto_text = "\n".join(auto_lines)
-    
+
     # Product Hunt gap verilerini prompt'a ekle
     gap_signals = state.get("product_gaps", [])
     gap_text = ""
@@ -104,7 +110,23 @@ def brainstorm_angles_node(state: DeepAgentState) -> DeepAgentState:
         for g in gap_signals[:8]:
             gap_lines.append(f"- [{g.get('source')}] {g.get('title', '')[:120]}")
         gap_text = "\n".join(gap_lines)
-    
+
+    # SEO / Google Trends verisi prompt'a ekle
+    seo_data = state.get("seo_data", {})
+    seo_text = ""
+    if seo_data:
+        seo_lines = []
+        for kw, d in list(seo_data.items())[:3]:
+            direction_emoji = "↑" if d.get("trend_direction") == "rising" else ("↓" if d.get("trend_direction") == "declining" else "→")
+            seo_lines.append(
+                f'  • "{kw}" → İlgi: {d.get("interest_score", "?")} /100 '
+                f'({direction_emoji} {d.get("change_pct", "0%")})'
+            )
+            rising = d.get("related_rising", [])[:3]
+            if rising:
+                seo_lines.append(f'    Yükselen aramalar: {", ".join(rising)}')
+        seo_text = "\n📈 Google Trends / Arama Hacmi:\n" + "\n".join(seo_lines)
+
     prompt = f"""KULLANICININ SEÇTİĞİ ANA KATEGORİ: {state['target_category']}
     
 Pazardaki İlgili AI Modelleri: {models_text if models_text else "Bu nişte kullanılabilecek top-tier AI modellerini düşün."}
@@ -117,6 +139,7 @@ OTOMASYON İSTİHBARATI (n8n/Zapier/Make.com Forumlarından):
 PRODUCT HUNT BOŞLUK ANALİZİ (Mevcut Ürünlerin Zayıf Noktaları):
 {gap_text}
 ÖNEMLİ: Bu boşluklar, kullanıcıların mevcut ürünlerden memnun olmadığı noktaları gösterir. Burası altın madeni.''' if gap_text else ''}
+{seo_text if seo_text else ''}
 
 Sen Y Combinator'dan acımasız bir yatırımcısın. Görevin KULLANICININ SEÇTİĞİ ANA KATEGORİ ({state['target_category']}) odağında 3 farklı Micro-SaaS 'Saldırı Açısı' (Hypothesis) yazmak.
 
@@ -235,10 +258,23 @@ Sadece en kârlı TEK açıyı seç. Seçtiğin açı, seçme nedenin (ödeme is
 def write_investment_memo_node(state: DeepAgentState) -> DeepAgentState:
     if state.get("error"): return state
     print("[DeepResearch] Node 6 → write_investment_memo (Memo Oluşturuluyor)")
-    
+
     models = "\n".join([m.get("name", "") for m in state["trending_models"][:3]])
     decision = state["selected_angle"]
-    
+
+    # SEO verisi memo'ya ekle
+    seo_data = state.get("seo_data", {})
+    seo_memo_text = ""
+    if seo_data:
+        seo_lines = []
+        for kw, d in list(seo_data.items())[:3]:
+            direction_emoji = "↑" if d.get("trend_direction") == "rising" else ("↓" if d.get("trend_direction") == "declining" else "→")
+            seo_lines.append(
+                f'- "{kw}": İlgi {d.get("interest_score", "?")} /100, '
+                f'{direction_emoji} {d.get("change_pct", "0%")}'
+            )
+        seo_memo_text = "\nGoogle Trends Verileri:\n" + "\n".join(seo_lines)
+
     prompt = f"""Görevin, aşağıdaki yatırımcı kararını alıp profesyonel bir "Investment Memo" (Yatırım Karar Metni) formatında Mükemmel bir Markdown raporu oluşturmak.
 
 Karar ve Strateji:
@@ -246,6 +282,7 @@ Karar ve Strateji:
 
 Kullanılabilecek AI Modelleri:
 {models}
+{seo_memo_text}
 
 Format:
 # 🧠 Deep Research Analizi: {decision[:40]}...
@@ -379,6 +416,9 @@ if __name__ == "__main__":
         "selected_angle": "",
         "investment_memo": "",
         "buyer_leads": [],
+        "automation_signals": [],
+        "product_gaps": [],
+        "seo_data": {},
         "error": None
     }):
         node_name = list(event.keys())[0]
