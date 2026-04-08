@@ -17,7 +17,12 @@ import shutil
 from datetime import datetime
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-PYTHON = os.path.join(BASE_DIR, "venv", "Scripts", "python.exe")
+
+import platform
+if platform.system() == "Windows":
+    PYTHON = os.path.join(BASE_DIR, "venv", "Scripts", "python.exe")
+else:
+    PYTHON = os.path.join(BASE_DIR, "venv", "bin", "python")
 if not os.path.exists(PYTHON):
     PYTHON = sys.executable
 
@@ -139,15 +144,44 @@ def run_pipeline():
     return all(results.values())
 
 
+def run_gallery_seed():
+    """Gallery'yi tüm kategoriler için yeniden seed eder (Pazartesi 03:00)."""
+    log("=" * 50)
+    log("GALLERY SEED BAŞLADI (Haftalık)")
+    log("=" * 50)
+    result = run_step("scripts/seed_gallery.py", "Gallery Seed (15 kategori)")
+    log(f"Gallery Seed {'[OK]' if result else '[HATA]'}")
+    return result
+
+
+def run_alert_check():
+    """Aktif alarmları kontrol edip email gönderir (Her gün 07:00)."""
+    log("=" * 50)
+    log("ALERT CHECK BAŞLADI")
+    log("=" * 50)
+    result = run_step("scripts/run_alerts.py", "Alert Check & Email")
+    log(f"Alert Check {'[OK]' if result else '[HATA]'}")
+    return result
+
+
 def run_scheduled(schedule_time: str = "06:00"):
-    """Her gün belirlenen saatte pipeline çalıştırır."""
+    """Her gün belirlenen saatte pipeline, her Pazartesi 03:00'da gallery seed, her gün 07:00'da alert check çalıştırır."""
     import schedule as sched  # lazy import
 
     log(f"Zamanlayici baslatildi -- her gun saat {schedule_time}")
+    log(f"   Gallery Seed  : Her Pazartesi 03:00")
+    log(f"   Alert Check   : Her gün 07:00")
     log(f"   Python: {PYTHON}")
     log(f"   Proje: {BASE_DIR}")
 
+    # Günlük scraper + ingestion pipeline
     sched.every().day.at(schedule_time).do(run_pipeline)
+
+    # Haftalık gallery seed — Pazartesi sabah 03:00
+    sched.every().monday.at("03:00").do(run_gallery_seed)
+
+    # Günlük alarm check — her gün 07:00
+    sched.every().day.at("07:00").do(run_alert_check)
 
     while True:
         sched.run_pending()
