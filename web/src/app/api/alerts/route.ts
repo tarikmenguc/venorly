@@ -19,7 +19,7 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Keyword and email are required' }, { status: 400 });
         }
 
-        const alert = await AlertDB.create(keyword, ['reddit', 'github', 'huggingface'], frequency);
+        const alert = await AlertDB.create(keyword, email, ['reddit', 'github', 'huggingface'], frequency);
         if (!alert) {
              return NextResponse.json({ error: 'Could not create alert' }, { status: 500 });
         }
