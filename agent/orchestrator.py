@@ -53,6 +53,7 @@ class OrchestratorState(TypedDict):
     automation_signals: List[dict]
     product_gaps: List[dict]
     research_summary: str
+    seo_data: dict
     # Analyst Agent çıktıları
     brainstormed_angles: List[str]
     web_research_results: List[dict]
@@ -147,6 +148,16 @@ Bu alandaki en büyük fırsatlar ve boşluklar nelerdir?"""
         research_summary = f"Araştırma verileri toplandı: {len(trending_models)} model, {len(known_apps)} app."
         log.append(f"  ⚠️ Özet LLM hatası, fallback kullanıldı: {e}")
 
+    # SEO / Google Trends verisi
+    seo_data = {}
+    try:
+        from scrapers.google_trends import get_search_volume, generate_seo_keywords
+        seo_keywords = generate_seo_keywords(category)
+        seo_data = get_search_volume(seo_keywords)
+        log.append(f"  ✅ SEO verisi: {len(seo_data)} keyword")
+    except Exception as e:
+        log.append(f"  ⚠️ SEO verisi hatası: {e}")
+
     print(f"🔍 [Research Agent] ✅ Tamamlandı — {len(trending_models)} model, {len(known_apps)} app, {auto_count} otomasyon sinyali, {gap_count} PH gap")
 
     return {
@@ -154,6 +165,7 @@ Bu alandaki en büyük fırsatlar ve boşluklar nelerdir?"""
         "trending_models": trending_models,
         "known_apps": known_apps,
         "research_summary": research_summary,
+        "seo_data": seo_data,
         "agent_log": log,
     }
 
@@ -191,6 +203,22 @@ def analyst_agent_node(state: OrchestratorState) -> OrchestratorState:
     gap_signals = state.get("product_gaps", [])
     gap_text = "\n".join([f"- [{g.get('source')}] {g.get('title', '')[:100]}" for g in gap_signals[:6]])
 
+    # SEO verisi
+    seo_data = state.get("seo_data", {})
+    seo_text = ""
+    if seo_data:
+        seo_lines = []
+        for kw, d in list(seo_data.items())[:3]:
+            direction_emoji = "↑" if d.get("trend_direction") == "rising" else ("↓" if d.get("trend_direction") == "declining" else "→")
+            seo_lines.append(
+                f'  • "{kw}" → İlgi: {d.get("interest_score", "?")} /100 '
+                f'({direction_emoji} {d.get("change_pct", "0%")})'
+            )
+            rising = d.get("related_rising", [])[:3]
+            if rising:
+                seo_lines.append(f'    Yükselen aramalar: {", ".join(rising)}')
+        seo_text = "\n📈 Google Trends / Arama Hacmi:\n" + "\n".join(seo_lines)
+
     brainstorm_prompt = f"""KULLANICININ SEÇTİĞİ ANA KATEGORİ: {category}
 
 ARAŞTIRMA ÖZETİ: {research}
@@ -203,6 +231,7 @@ OTOMASYON İSTİHBARATI (n8n/Zapier/Make.com Forumlarından):
 {f'''
 PRODUCT HUNT BOŞLUK ANALİZİ (Mevcut Ürünlerin Zayıf Noktaları):
 {gap_text}''' if gap_text else ''}
+{seo_text if seo_text else ''}
 
 Sen Y Combinator'dan acımasız bir yatırımcısın. Görevin {category} odağında 3 farklı Micro-SaaS 'Saldırı Açısı' yazmak.
 
@@ -285,10 +314,24 @@ Seçtiğin açıyı, nedenini ve Go-To-Market stratejini kısaca açıkla."""
     investment_memo = ""
     try:
         models = "\n".join([m.get("name", "") for m in state["trending_models"][:3]])
+        
+        # SEO verisi memo'ya ekle
+        seo_memo_text = ""
+        if seo_data:
+            seo_lines = []
+            for kw, d in list(seo_data.items())[:3]:
+                direction_emoji = "↑" if d.get("trend_direction") == "rising" else ("↓" if d.get("trend_direction") == "declining" else "→")
+                seo_lines.append(
+                    f'- "{kw}": İlgi {d.get("interest_score", "?")} /100, '
+                    f'{direction_emoji} {d.get("change_pct", "0%")}'
+                )
+            seo_memo_text = "\nGoogle Trends Verileri:\n" + "\n".join(seo_lines)
+
         memo_prompt = f"""Profesyonel bir "Investment Memo" formatında Markdown raporu oluştur.
 
 Karar: {selected_angle}
 AI Modelleri: {models}
+{seo_memo_text}
 
 Format:
 # 🧠 Deep Research Analizi: {selected_angle[:40]}...
@@ -461,6 +504,7 @@ if __name__ == "__main__":
         "automation_signals": [],
         "product_gaps": [],
         "research_summary": "",
+        "seo_data": {},
         "brainstormed_angles": [],
         "web_research_results": [],
         "competitor_insights": "",
