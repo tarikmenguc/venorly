@@ -16,3 +16,7 @@ pydantic
 langchain-community
 feedparser
 langchain-google-genai
+pytrends
+pyjwt
+cryptography
+resend
