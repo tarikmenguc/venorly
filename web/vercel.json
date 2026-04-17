@@ -5,14 +5,9 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "https://your-backend-url.onrender.com/api/$1"
+      "destination": "https://startup-idea-finder-fhjk.onrender.com"
     }
   ],
-  "functions": {
-    "pages/api/**/*.js": {
-      "runtime": "nodejs18.x"
-    }
-  },
   "headers": [
     {
       "source": "/(.*)",
