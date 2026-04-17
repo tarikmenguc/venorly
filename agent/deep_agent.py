@@ -3,15 +3,15 @@ import sys
 import json
 from typing import TypedDict, List, Optional
 from langchain_core.messages import HumanMessage
-from langchain_community.tools.tavily_search import TavilySearchResults
 from langgraph.graph import StateGraph, END
+from tavily import TavilyClient
 
 # Proje kökünü path'e ekle
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE_DIR)
 
 from agent.idea_agent import get_llm
-from scrapers.reality_intel import check_upwork_rss, scan_reddit_desperation, scrape_github_gui_requests 
+from scrapers.reality_intel import check_upwork_rss, scan_reddit_desperation, scrape_github_gui_requests
 from agent.buyer_matcher import BuyerMatcherAgent
 
 # ──────────────────────────────────────────────
@@ -32,7 +32,12 @@ class DeepAgentState(TypedDict):
     seo_data: dict
     error: Optional[str]
 
-tavily_search = TavilySearchResults(max_results=3)
+def _get_tavily() -> TavilyClient | None:
+    api_key = os.getenv("TAVILY_API_KEY", "")
+    if not api_key:
+        print("[DeepResearch] ⚠️ TAVILY_API_KEY bulunamadı!")
+        return None
+    return TavilyClient(api_key=api_key)
 
 # ──────────────────────────────────────────────
 # NODE 1: Init Research (Tavily Web Araması)
@@ -176,16 +181,19 @@ def deep_web_research_node(state: DeepAgentState) -> DeepAgentState:
     print("[DeepResearch] Node 3 → deep_web_research (Paralel Arama Simülasyonu)")
     
     results = []
+    tavily = _get_tavily()
     for i, angle in enumerate(state["brainstormed_angles"]):
         print(f"  [DeepResearch] 🔍 Açı {i+1} için web taranıyor...")
         try:
+            if not tavily:
+                continue
             # 1. Rakipler araması
             q1 = f"{angle} SaaS tools software competitors"
-            res1 = tavily_search.invoke(q1)
+            res1 = tavily.search(q1, max_results=3, search_depth="basic").get("results", [])
             # 2. Şikayet araması
             q2 = f"{angle} software reddit complaints issues"
-            res2 = tavily_search.invoke(q2)
-            
+            res2 = tavily.search(q2, max_results=3, search_depth="basic").get("results", [])
+
             results.append({
                 "angle": angle,
                 "competitor_data": res1,
@@ -275,35 +283,64 @@ def write_investment_memo_node(state: DeepAgentState) -> DeepAgentState:
             )
         seo_memo_text = "\nGoogle Trends Verileri:\n" + "\n".join(seo_lines)
 
-    prompt = f"""Görevin, aşağıdaki yatırımcı kararını alıp profesyonel bir "Investment Memo" (Yatırım Karar Metni) formatında Mükemmel bir Markdown raporu oluşturmak.
+    prompt = f"""Görevin, aşağıdaki araştırma bulgusunu esas alarak nesnel ve sorgulamalı bir iş analizi raporu yazmak. Bu bir satış metni değil — güçlü ve zayıf yanları eşit ağırlıkla ele alan, saygılı ama doğrudan bir değerlendirme belgesi olmalı.
 
-Karar ve Strateji:
+YALNIZCA TÜRKÇE YAZ. Emoji kullanma. Abartı ve süslü dil kullanma.
+
+Araştırma Bulgusu:
 {decision}
 
 Kullanılabilecek AI Modelleri:
 {models}
 {seo_memo_text}
 
-Format:
-# 🧠 Deep Research Analizi: {decision[:40]}...
+Aşağıdaki başlıkları sırayla, düz ve ciddi bir dille yaz:
 
-## 1. Executive Summary
-[Hızlı özet - Kullanıcının {state['target_category']} alanı ile tam entegrasyonu vurgula]
+# Derin Araştırma Raporu: {state['target_category']}
 
-## 2. Thesis (Yatırım Tezi)
-[Neden bu alanda bir boşluk var?]
+## Fikir ve Kapsam
 
-## 3. Product Vision & AI Stack
-[Hangi AI modelleri kullanılacak, ürün tam olarak ne yapacak]
+[Bu fikir ne öneriyor? Kim için, ne yapıyor, hangi teknolojiyle? 2-3 cümle, sade.]
 
-## 4. Competitive Dynamics (Rekabet)
-[Mevcut rakipler neden yetersiz kalıyor?]
+---
 
-## 5. Financial Projections & Pricing
-[Micro-SaaS fiyatlandırması (örn: Free/$29/$99) ve 12 aylık potansiyel MRR tahmini]
+## Neden Bu Boşluk Var?
 
-## 6. Go-to-Market Strategy
-[İlk 100 kullanıcıya ulaşma taktikleri]
+[Rakipler bu problemi neden çözmedi? Teknik engel mi, pazar büyüklüğü mü, yoksa gerçekten talep yok mu? Nesnel değerlendir.]
+
+---
+
+## Ürün ve Teknoloji
+
+[Hangi AI modelleri kullanılacak? Ürün ne yapıyor, ne yapmıyor? Teknik gerçekçiliği sorgula.]
+
+---
+
+## Rekabet Gerçekliği
+
+[Mevcut rakipler neden yetersiz kalıyor? Ama rakipler bu açığı fark etmedi mi? Onlar da aynı şeyi yapabilir mi?]
+
+---
+
+## Finansal Gerçekçilik
+
+[Fiyatlandırma önerisi ve dayandığı mantık. 12 aylık MRR tahmini — gerçekçi, abartısız.]
+
+---
+
+## İlk Müşteriye Ulaşma Yolu
+
+[Reklam yok. Hangi topluluk, kanal veya niş? Neden orada? İlk 10 müşteri için somut plan.]
+
+---
+
+## Sonuç: Bu Fikrin Önüne Geçebilecek Riskler
+
+[En az 3 somut risk. Bunları görmezden gelmek hata olur. Nesnel ve kısa.]
+
+---
+
+Sadece raporu yaz.
 """
 
     try:
