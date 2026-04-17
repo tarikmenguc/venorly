@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = "force-dynamic";
+
 import { useState } from "react";
 import { GradientDots } from "@/components/ui/gradient-dots";
 import { NavBar } from "@/components/ui/tubelight-navbar";
