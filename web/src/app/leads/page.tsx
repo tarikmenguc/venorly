@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   Users,
@@ -15,6 +15,10 @@ import {
   CheckCircle2,
   Archive,
   Loader2,
+  Search,
+  Download,
+  X,
+  Calendar,
 } from "lucide-react";
 
 interface Lead {
@@ -46,31 +50,97 @@ const STATUS_CONFIG = {
   archived: { label: "Arşiv", icon: Archive, color: "text-gray-400", bg: "bg-gray-500/10 border-gray-500/20" },
 };
 
+function exportToCSV(leads: Lead[]) {
+  const headers = ["ID", "Kaynak", "Başlık", "URL", "Açıklama", "Skor", "Durum", "Kategori", "Eklenme Tarihi"];
+  const rows = leads.map((l) => [
+    l.id,
+    l.source,
+    `"${(l.title || "").replace(/"/g, '""')}"`,
+    l.url || "",
+    `"${(l.desc || "").replace(/"/g, '""')}"`,
+    l.score,
+    l.status,
+    l.scan_category || "",
+    l.added_at ? new Date(l.added_at).toISOString() : "",
+  ]);
+
+  const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `leads_${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
 export default function LeadsPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
+  const [allLeads, setAllLeads] = useState<Lead[]>([]);
   const [stats, setStats] = useState<LeadStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>("all");
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const router = useRouter();
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Debounce search
   useEffect(() => {
-    fetchLeads();
-  }, [filter]);
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => setDebouncedSearch(search), 350);
+    return () => { if (searchTimer.current) clearTimeout(searchTimer.current); };
+  }, [search]);
 
-  async function fetchLeads() {
+  const fetchLeads = useCallback(async () => {
+    setLoading(true);
     try {
       const params = filter !== "all" ? `?status=${filter}` : "";
       const res = await fetch(`/api/leads${params}`);
       const data = await res.json();
-      setLeads(data.leads || []);
+      setAllLeads(data.leads || []);
       setStats(data.stats || null);
     } catch (e) {
       console.error("Leads hatası:", e);
     } finally {
       setLoading(false);
     }
-  }
+  }, [filter]);
+
+  useEffect(() => { fetchLeads(); }, [fetchLeads]);
+
+  // Client-side filtering: search + date range
+  useEffect(() => {
+    let filtered = [...allLeads];
+
+    if (debouncedSearch.trim()) {
+      const q = debouncedSearch.toLowerCase();
+      filtered = filtered.filter(
+        (l) =>
+          l.title?.toLowerCase().includes(q) ||
+          l.desc?.toLowerCase().includes(q) ||
+          l.source?.toLowerCase().includes(q) ||
+          l.scan_category?.toLowerCase().includes(q)
+      );
+    }
+
+    if (dateFrom) {
+      const from = new Date(dateFrom);
+      filtered = filtered.filter((l) => l.added_at && new Date(l.added_at) >= from);
+    }
+    if (dateTo) {
+      const to = new Date(dateTo);
+      to.setHours(23, 59, 59, 999);
+      filtered = filtered.filter((l) => l.added_at && new Date(l.added_at) <= to);
+    }
+
+    setLeads(filtered);
+  }, [allLeads, debouncedSearch, dateFrom, dateTo]);
 
   async function updateStatus(id: string, status: string) {
     try {
@@ -89,6 +159,15 @@ export default function LeadsPage() {
     navigator.clipboard.writeText(text);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
+  }
+
+  const hasActiveFilters = debouncedSearch || dateFrom || dateTo;
+
+  function clearFilters() {
+    setSearch("");
+    setDebouncedSearch("");
+    setDateFrom("");
+    setDateTo("");
   }
 
   if (loading) {
@@ -111,12 +190,23 @@ export default function LeadsPage() {
               </h1>
               <p className="text-muted-foreground mt-1">Potansiyel müşterilerinizi takip edin</p>
             </div>
-            <button
-              onClick={() => router.push("/dashboard")}
-              className="px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-muted-foreground hover:bg-white/10 hover:text-white transition-all flex items-center gap-2"
-            >
-              <ArrowLeft className="w-4 h-4" /> Dashboard
-            </button>
+            <div className="flex items-center gap-3">
+              {allLeads.length > 0 && (
+                <button
+                  onClick={() => exportToCSV(leads.length > 0 ? leads : allLeads)}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-600/15 border border-green-500/20 text-sm text-green-400 hover:bg-green-600/25 transition-all"
+                >
+                  <Download className="w-4 h-4" />
+                  CSV İndir ({leads.length})
+                </button>
+              )}
+              <button
+                onClick={() => router.push("/dashboard")}
+                className="px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-muted-foreground hover:bg-white/10 hover:text-white transition-all flex items-center gap-2"
+              >
+                <ArrowLeft className="w-4 h-4" /> Dashboard
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -146,10 +236,65 @@ export default function LeadsPage() {
           </div>
         )}
 
-        {/* Filter Bar */}
-        <div className="flex items-center gap-2">
+        {/* Search + Date Filter Bar */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          {/* Search */}
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Başlık, kaynak veya kategori ara..."
+              className="w-full pl-10 pr-4 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white placeholder:text-muted-foreground focus:outline-none focus:border-purple-500/50 focus:bg-white/8 transition-all"
+            />
+            {search && (
+              <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-white transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          {/* Date From */}
+          <div className="relative">
+            <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="pl-10 pr-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white focus:outline-none focus:border-purple-500/50 transition-all [color-scheme:dark]"
+              title="Başlangıç tarihi"
+            />
+          </div>
+
+          <span className="text-muted-foreground text-sm text-center">—</span>
+
+          {/* Date To */}
+          <div className="relative">
+            <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="pl-10 pr-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white focus:outline-none focus:border-purple-500/50 transition-all [color-scheme:dark]"
+              title="Bitiş tarihi"
+            />
+          </div>
+
+          {hasActiveFilters && (
+            <button
+              onClick={clearFilters}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-xs text-muted-foreground hover:text-white hover:bg-white/10 transition-all whitespace-nowrap"
+            >
+              <X className="w-3.5 h-3.5" /> Temizle
+            </button>
+          )}
+        </div>
+
+        {/* Source Filter Tags */}
+        <div className="flex items-center gap-2 flex-wrap">
           <Filter className="w-4 h-4 text-muted-foreground" />
-          <span className="text-sm text-muted-foreground">Filtre:</span>
+          <span className="text-sm text-muted-foreground">Durum:</span>
           <button
             onClick={() => setFilter("all")}
             className={`px-3 py-1 rounded-full text-xs transition-all ${
@@ -163,22 +308,38 @@ export default function LeadsPage() {
               {source}: {count}
             </span>
           ))}
+          {hasActiveFilters && (
+            <span className="px-2 py-1 rounded-full text-xs bg-purple-500/15 text-purple-400 border border-purple-500/20">
+              {leads.length} sonuç gösteriliyor
+            </span>
+          )}
         </div>
 
         {/* Lead List */}
         {leads.length === 0 ? (
           <div className="rounded-xl bg-card border border-white/5 p-16 text-center">
             <Users className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-            <p className="text-lg text-muted-foreground">Henüz lead bulunmuyor.</p>
-            <p className="text-sm text-muted-foreground mt-2">
-              Derin Analiz veya Orkestratör modunda tarama yaparak lead toplayabilirsiniz.
-            </p>
-            <button
-              onClick={() => router.push("/")}
-              className="mt-6 px-6 py-2.5 rounded-lg bg-gradient-to-r from-purple-600 to-violet-500 text-white text-sm font-medium hover:opacity-90 transition-all"
-            >
-              Tarama Başlat →
-            </button>
+            {hasActiveFilters ? (
+              <>
+                <p className="text-lg text-muted-foreground">Arama kriterlerine uyan lead bulunamadı.</p>
+                <button onClick={clearFilters} className="mt-4 px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-muted-foreground hover:text-white transition-all">
+                  Filtreleri Temizle
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="text-lg text-muted-foreground">Henüz lead bulunmuyor.</p>
+                <p className="text-sm text-muted-foreground mt-2">
+                  Derin Analiz veya Orkestratör modunda tarama yaparak lead toplayabilirsiniz.
+                </p>
+                <button
+                  onClick={() => router.push("/")}
+                  className="mt-6 px-6 py-2.5 rounded-lg bg-gradient-to-r from-purple-600 to-violet-500 text-white text-sm font-medium hover:opacity-90 transition-all"
+                >
+                  Tarama Başlat →
+                </button>
+              </>
+            )}
           </div>
         ) : (
           <div className="space-y-3">
