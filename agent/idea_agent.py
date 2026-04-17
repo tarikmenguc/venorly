@@ -61,6 +61,7 @@ class AgentState(TypedDict):
     competition_matrix: str          # competition_matrix_node çıktısı          [FAZ 9]
     final_report: str                # generate_opportunity_node çıktısı
     validation_details: str          # validate_idea_node çıktısı               [FAZ 9]
+    seo_data: dict                   # google_trends verisi                      [V8]
     error: Optional[str]
 
 
@@ -109,44 +110,48 @@ def fetch_trending_models_node(state: AgentState) -> AgentState:
 # ──────────────────────────────────────────────
 
 def match_to_market_node(state: AgentState) -> AgentState:
-    """Tavily web aramasıyla pazardaki mevcut uygulamaları/SaaS ürünlerini bulur."""
-    if not state["trending_models"]:
-        print("[Agent] Node 2 → match_to_market | model yok, atlanıyor.")
-        return {**state, "matching_apps": []}
-
-    model_names = " ".join([m["name"] for m in state["trending_models"][:3]])
-    search_query = f"{state['user_category']} SaaS startup app {model_names}"
-    print(f"[Agent] Node 2 → match_to_market (Tavily) | query: '{search_query[:80]}...'")
+    """
+    İngilizce sorgularla pazardaki mevcut SaaS uygulamalarını bulur.
+    Domain bazlı dedup, en az 5 sonuç, retry mekanizması.
+    """
+    print(f"[Agent] Node 2 → match_to_market | kategori: '{state['user_category']}'")
 
     try:
-        from tavily import TavilyClient
-        tavily = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
-        results = tavily.search(
-            f"existing SaaS apps startups using {search_query}",
-            max_results=10,
-            search_depth="basic"
-        )
+        from scrapers.competitor_research import find_competitors
+        category = state["user_category"]
+        competitors = find_competitors(category=category, niche=category, min_results=5)
     except Exception as e:
-        print(f"[Agent] ❌ App arama hatası: {e}")
-        return {**state, "matching_apps": [], "error": str(e)}
+        print(f"[Agent] ❌ Rakip arama hatası: {e}")
+        competitors = []
 
+    # Eski format ile uyumlu hale getir (state'teki diğer node'lar name/url bekliyor)
     all_apps = []
-    for r in results.get("results", []):
+    for c in competitors:
         all_apps.append({
-            "content":  r.get("content", "")[:300],
-            "name":     r.get("title", ""),
-            "mrr":      "",
-            "votes":    "0",
-            "category": state["user_category"],
-            "source":   "tavily_web",
-            "url":      r.get("url", ""),
+            "name":        c.get("name", ""),
+            "url":         c.get("url", ""),
+            "domain":      c.get("domain", ""),
+            "content":     c.get("snippet", "")[:300],
+            "mrr":         c.get("pricing_hint", ""),
+            "votes":       "0",
+            "category":    state["user_category"],
+            "source":      "tavily_web",
+            "pricing_hint": c.get("pricing_hint", "bilinmiyor"),
         })
 
-    sample_size = min(6, len(all_apps))
-    apps = random.sample(all_apps, sample_size) if all_apps else []
+    print(f"[Agent] ✅ {len(all_apps)} rakip/uygulama bulundu.")
 
-    print(f"[Agent] ✅ {len(all_apps)} app bulundu → {len(apps)} rastgele seçildi.")
-    return {**state, "matching_apps": apps}
+    # ── SEO / Google Trends verisi (match_to_market ile birlikte çekiliyor) ──
+    seo_data = {}
+    try:
+        from scrapers.google_trends import get_search_volume, generate_seo_keywords
+        keywords = generate_seo_keywords(state["user_category"])
+        seo_data = get_search_volume(keywords)
+        print(f"[Agent] ✅ SEO verisi alındı: {list(seo_data.keys())}")
+    except Exception as e:
+        print(f"[Agent] ⚠️  SEO verisi alınamadı (devam ediyor): {e}")
+
+    return {**state, "matching_apps": all_apps, "seo_data": seo_data}
 
 
 # ──────────────────────────────────────────────
@@ -161,7 +166,12 @@ def scrape_competitor_reviews_node(state: AgentState) -> AgentState:
         print("[Agent] ⚠️  Eşleşen app yok, şikayet araması atlanıyor.")
         return {**state, "competitor_complaints": []}
 
-    app_names = [a["name"] for a in state["matching_apps"] if a.get("name")]
+    # domain bazlı filtrele — çok genel siteleri (reddit, g2) çıkar
+    skip_domains = {"reddit.com", "g2.com", "capterra.com", "trustpilot.com", "producthunt.com"}
+    app_names = [
+        a["name"] for a in state["matching_apps"]
+        if a.get("name") and a.get("domain", "") not in skip_domains
+    ]
 
     try:
         from scrapers.competitor_research import search_competitor_complaints
@@ -232,23 +242,41 @@ def generate_opportunity_node(state: AgentState) -> AgentState:
     """Multi-shot rapor: 3 fikir üret → en iyisini seç → detaylandır."""
     print("[Agent] Node 5 → generate_opportunity (multi-shot)")
 
-    # Modeller
+    # Modeller — URL dahil
     if state["trending_models"]:
         models_text = "\n".join([
-            f"  • {m['name']} ({m['category']}) | İndirme: {m['downloads']} | {m['url']}"
+            f"  • {m['name']} ({m['category']}) | {m['url']}"
             for m in state["trending_models"][:5]
         ])
     else:
         models_text = "  (Model verisi bulunamadı)"
 
-    # Uygulamalar
+    # Uygulamalar — URL dahil
     if state["matching_apps"]:
         apps_text = "\n".join([
-            f"  • {a['name']} | MRR: {a['mrr'] or '?'} | Oylar: {a['votes']} | {a['source']}"
+            f"  • {a['name']} | {a.get('url', 'URL yok')}"
             for a in state["matching_apps"][:5]
         ])
     else:
         apps_text = "  (Uygulama verisi bulunamadı)"
+
+    # Atıfta bulunulabilecek kaynaklar — LLM bunları doğrudan kullanacak
+    source_pool = []
+    for m in state.get("trending_models", [])[:5]:
+        if m.get("url") and m["url"].startswith("http"):
+            source_pool.append(f"  - {m['name']}: {m['url']}")
+    for a in state.get("matching_apps", [])[:5]:
+        if a.get("url") and a["url"].startswith("http"):
+            source_pool.append(f"  - {a['name']}: {a['url']}")
+    for c in state.get("competitor_complaints", [])[:3]:
+        if c.get("url") and c["url"].startswith("http"):
+            source_pool.append(f"  - {c.get('app','Kaynak')}: {c['url']}")
+    cited_sources_block = (
+        "Araştırma sırasında bulunan kaynaklar (yalnızca bunları kullan, URL uydurmak yasak):\n"
+        + "\n".join(source_pool)
+        if source_pool else
+        "Araştırma kaynakları: Bu tarama için doğrulanmış URL bulunamadı."
+    )
 
     # Rakip şikayetleri
     complaint_clusters = state.get("complaint_clusters", "")
@@ -275,36 +303,56 @@ def generate_opportunity_node(state: AgentState) -> AgentState:
     ]
     chosen_perspective = random.choice(perspectives)
 
+    # SEO verisi bölümü
+    seo_data = state.get("seo_data", {})
+    seo_text = ""
+    if seo_data:
+        seo_lines = []
+        for kw, d in list(seo_data.items())[:3]:
+            direction_emoji = "↑" if d.get("trend_direction") == "rising" else ("↓" if d.get("trend_direction") == "declining" else "→")
+            seo_lines.append(
+                f'  • "{kw}" → İlgi: {d.get("interest_score", "?")} /100 '
+                f'({direction_emoji} {d.get("change_pct", "0%")})'
+            )
+            rising = d.get("related_rising", [])[:3]
+            if rising:
+                seo_lines.append(f'    Yükselen aramalar: {", ".join(rising)}')
+        seo_text = "\nArama Hacmi Verileri:\n" + "\n".join(seo_lines)
+
     data_context = f"""Kategori: {state['user_category']}
 Perspektif: {chosen_perspective}
 
-Trend AI Modeller:
+Trend AI Modelleri ve Kaynakları:
 {models_text}
 
-Para kazanan uygulamalar:
+Mevcut Uygulamalar ve Kaynakları:
 {apps_text}
-{all_complaints}"""
+{all_complaints}{seo_text}
+
+{cited_sources_block}"""
 
     # ========================================
     # AŞAMA 1: 3 farklı fikir üret (yaratıcı)
     # ========================================
     print("[Agent]   Aşama 1/3: 3 fikir üretiliyor...")
-    prompt1 = f"""KULLANICININ SEÇTİĞİ ANA KATEGORİ: "{state['user_category']}"
-Sen bir B2B Micro-SaaS strateji uzmanısın. Görevin, milyonlarca kullanıcıya değil, aylık 29$-99$ ödeyecek spesifik profesyonellere (B2B veya Para Kazanan İçerik Üreticilerine) yönelik 3 FARKLI Micro-SaaS fikri üretmek.
-
-KATI KURALLAR (Friction Economy):
-1. B2C (Son kullanıcı/Tüketici/İzleyici) fikirleri YASAKTIR. (Örn: "Kullanıcıların izleyeceği video bulma uygulaması" -> YASAK. "YouTuber'ların 10 saatlik videodan otomatik B-Roll çıkarma aracı" -> İZİNLİ).
-2. "Vitamin Değil, Ağrı Kesici" kuralı: "Daha iyi analiz yapar" gibi yuvarlak ve jenerik laflar KULLANMA. İnsanın her gün manuel olarak saatlerini alan spesifik bir angarya işi (Sürtünme Noktası) otomatize et!
-3. AI Arbitrajı: Sadece bir dashboard yapma. Arkada mutlaka AI API'lerini kullanıp süreci 1 tıklamaya indirecek bir çözüm sun.
+    prompt1 = f"""Kategori: "{state['user_category']}"
 
 Trend AI Modelleri:
-{models_text if models_text.strip() != "(Model verisi bulunamadı)" else "(Kategoriye uygun spesifik AI modelleri düşün.)"}
+{models_text if models_text.strip() != "(Model verisi bulunamadı)" else "(Kategoriye uygun spesifik AI modellerini düşün.)"}
 
-Para Kazanan Uygulamalar (Rakipler):
-{apps_text if apps_text.strip() != "(Uygulama verisi bulunamadı)" else "(Rakiplerin eksik bıraktığı bir açığı düşün.)"}
+Mevcut uygulamalar (rakipler):
+{apps_text if apps_text.strip() != "(Uygulama verisi bulunamadı)" else "(Bu kategorideki mevcut SaaS ürünlerini göz önünde bulundur.)"}
 
-Bu 3 KATI KURALA uyarak, listeyi aşağıdaki formatta ver:
-1. [Fikir Başlığı] | Model: [model] | Hedef Müşteri: [Spesifik Niş] | Acı: [Kısaca manuel süreç] | Çözüm: [Kısaca otomasyon]
+Görev: Yukarıdaki kategoride, aylık 29-99 dolar ödeyebilecek B2B profesyonellere (ajanslar, freelancer'lar, küçük işletmeler) yönelik 3 farklı Micro-SaaS fikri öner.
+
+Kurallar:
+- Tüketici uygulaması değil, iş araçları olsun.
+- Her fikir somut bir manuel iş sürecini otomatize etsin — genel "analiz aracı" veya "dashboard" olmasın.
+- AI API'leri kullanılarak üretilmiş olsun.
+- YALNIZCA TÜRKÇE yaz.
+
+Format:
+1. [Başlık] | Hedef: [Spesifik niş] | Sorun: [Manuel süreç] | Çözüm: [Otomasyon]
 2. ...
 3. ...
 
@@ -326,18 +374,18 @@ Sadece listeyi yaz."""
     # AŞAMA 2: En iyisini seç (analitik)
     # ========================================
     print("[Agent]   Aşama 2/3: En iyi fikir seçiliyor...")
-    prompt2 = f"""Aşağıda 3 Micro-SaaS fikri var. Hangisi en ACI ÇEKEN kitleye sahip ve satılması en kolay olanı?
+    prompt2 = f"""Aşağıda 3 Micro-SaaS fikri var. Hangisi detaylı analize en değer?
 
 {ideas_raw}
 
-Değerlendirme Kriterleri (Friction Economy):
-- "Pazar Büyüklüğü" UMRUMDA DEĞİL. "Ödeme İsteği (Willingness to Pay)" umrumda. (İnsanlar bu angaryadan ne kadar nefret ediyor?)
-- Zaman Tasarrufu (Time Saved): Bu araç günde/haftada kaç saat kurtarıyor?
-- "Vitamin"leri (Dashboard, Analiz) reddet. En güçlü "Ağrı Kesici"yi (Tek tıkla otomasyon) seç.
+Değerlendirme kriterleri:
+- Hedef kitlenin ödeme kapasitesi ve istekliliği
+- Çözülen sorunun ciddiyeti (ne kadar zaman/para kaybettiriyor?)
+- Rekabet ortamında farklılaşma imkânı
 
-Seçimin: [numara] — Neden: [2 cümle acımasız yatırımcı mantığı]
+Seçim: [numara] — Gerekçe: [2-3 cümle, nesnel ve kısa]
 
-Sadece seçimi ve nedenini yaz."""
+Sadece seçim numarasını ve gerekçeyi yaz. Abartma."""
 
     try:
         llm_analytic = get_llm(provider=preferred_provider, temp=0.2)
@@ -352,6 +400,23 @@ Sadece seçimi ve nedenini yaz."""
     # AŞAMA 3: Detaylı rapor (yapılandırılmış)
     # ========================================
     print("[Agent]   Aşama 3/3: Detaylı rapor üretiliyor...")
+    # all_complaints'i güvenli şekilde temizle — yabancı dil karakterleri filtrelenir
+    complaints_summary = ""
+    if all_complaints.strip():
+        # Ham metin yerine LLM'e özetle yaptır (dil kirliliği önlenir)
+        try:
+            clean_prompt = f"""Aşağıdaki kullanıcı şikayeti verilerini analiz et ve mevcut araçların en büyük 3 eksikliğini TÜRKÇE olarak 1-2 cümleyle özetle. Yabancı dil karakterleri veya anlamsız metin varsa yoksay.
+
+Veri:
+{all_complaints[:800]}
+
+YALNIZCA TÜRKÇE olarak, sadece 3 maddelik özeti yaz."""
+            complaints_summary = get_llm(temp=0.1).invoke([HumanMessage(content=clean_prompt)]).content.strip()
+        except Exception:
+            complaints_summary = "Rakip şikayet verisi işlenemedi."
+    else:
+        complaints_summary = "Rakip şikayet verisi bulunamadı — piyasadaki araçların genel boşluklarını analiz et."
+
     prompt3 = f"""Seçilen B2B/Painkiller fikri:
 {selected_idea}
 
@@ -361,39 +426,104 @@ Fikirler:
 Veri Kaynakları:
 {data_context}
 
-Bu fikri aşağıdaki formatta DETAYLI bir Friction Economy raporu olarak yaz (Türkçe, süslü laflar olmadan, net ve acımasız).
-Her bölümde SOMUT VERİ kullan, jenerik "iş süreçlerini hızlandırır" gibi cümlelerden kaçın. Direkt süre/para belirt.
+Rakip Eksiklikleri (Özet):
+{complaints_summary}
 
-🔥 NİŞ FIRSAT: [Çok spesifik, sürtünmeyi ortadan kaldıran başlık]
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📦 Kullanılacak AI Modeli: [Model adı + Süreci nasıl 1 tıklamaya indireceği]
-🎯 Odaklanılacak B2B Niş: [Spesifik hedef kitle - Örn: Sadece Düğün Fotoğrafçıları]
+════════════════════════════════════════
+ZORUNLU KURALLAR — BUNLARA UYMAZSAN RAPOR GEÇERSİZ SAYILIR:
 
-💰 Ödeme İsteği (Willingness to Pay) Mantığı:
-   [Hedef kitlenin bu işi manuel yaparken haftada kaybettiği saatleri hesapla, neden ayda $49 vereceklerini matematiksel olarak kanıtla]
+1. KAYNAK ZORUNLULUĞU
+   - Veri kaynakları bölümünde listelenen URL'lerden birini kullandığında parantez içinde yaz: (Kaynak: https://...)
+   - Listede olmayan bir URL uydurmak KESİNLİKLE YASAK.
+   - Eğer bir iddianın kaynağı yoksa: "(Kaynak: doğrulanamadı)" yaz ve iddiayı tahmin olarak çerçevele.
 
-❌ Rakiplerin "Vitamin" Olma Sebebi:
-   [Veri varsa: {all_complaints[:200]}... Veri yoksa genel piyasadaki araçların neden sadece "dashboard" verdiğini ama işi çözmediğini açıklayarak boşluğu belirt]
+2. TEKNOLOJİ STACK — SOYUT İFADE YASAK
+   - "AI modeli kullanılacak" yazmak yasak.
+   - Her teknoloji için spesifik isim + yaklaşık birim maliyet zorunlu.
+   - Örnek format: "OpenAI Whisper API (~$0.006/dk) + GPT-4o-mini (~$0.15/1M token)"
+   - Eğer kesin fiyat bilinmiyorsa: "yaklaşık $X (Kaynak: doğrulanamadı)" şeklinde yaz.
 
-⏱️ Tahmini Geliştirme Süresi:
-   MVP: [X hafta] | Full Ürün: [Y ay]
+3. TAM/SAM/SOM — HALÜSİNASYON YASAK
+   - Pazar büyüklüğü rakamı veriyorsan hesaplama formülünü göstermek zorundasın.
+   - Format: "TAM = [hedef kitle sayısı] kişi × [yıllık fiyat] = [toplam]"
+   - Formülün temelindeki varsayımı da belirt: "Dünya genelinde yaklaşık X [meslek] olduğu tahmin edilmektedir (Kaynak: doğrulanamadı)" gibi.
+   - Kaynaklı veri yoksa TAM/SAM/SOM rakamı vermek yerine şunu yaz: "Pazar büyüklüğü için güvenilir kaynak bulunamadı, tahmin verilmemiştir."
 
-🔧 Teknik Zorluk: [1-5 ⭐]
-   [API entegrasyonu, veri işleme zorlukları]
+4. DİL TUTARLILIĞI
+   - Yalnızca Türkçe yaz. İngilizce cümle, bölüm başlığı veya paragraf yasak.
+   - İngilizce terim kaçınılmazsa ilk kullanımda Türkçe karşılığını ver: "Willingness to Pay (ödeme isteği)"
 
-🚀 İlk 100 Müşteri (GTM) Stratejisi:
-   [Hangi subreddit'e, Hangi Upwork kategorisine veya Discord sunucusuna gidip direkt DM atılacak? Reklam yasak.]
+5. ÜSLUP
+   - Fikri onaylama, her iddiayı sorgula.
+   - "Bu harika bir fırsat" gibi pazarlama dili yasak.
+   - Deneyimli, saygılı, doğrudan — emoji veya ünlem işareti kullanma.
+════════════════════════════════════════
 
-💲 Fiyatlandırma Önerisi:
-   [Aylık abonelik bedeli tahmini ve nedeni]
+Aşağıdaki başlıkları sırayla yaz:
 
-💡 Fırsat Özeti:
-   [Tam olarak ne yapılacak, 2 cümle]
+## Fikir
 
-🔗 [Model URL]
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[Tek cümle: kim için, ne yapıyor, hangi teknolojiyle (spesifik model adı zorunlu).]
 
-Sadece raporu yaz."""
+---
+
+## Gerçekten Bir İhtiyaç Var mı?
+
+[Bu işi bugün manuel yapan insanlar gerçekten var mı? Kaç saat kaybediyorlar? Bu acı, aylık $X ödemeyi haklı kılar mı? Kanıtla ya da kanıtlanamıyorsa "doğrulanamadı" de. Kaynakları parantez içinde göster.]
+
+---
+
+## Hedef Kitle ve Ödeme Kapasitesi
+
+[Spesifik niş, tahmini kitle büyüklüğü (formülle), bu kitlenin bugün benzer araçlara ne ödediği. Ödeme isteksizliği riski varsa belirt.]
+
+---
+
+## Teknoloji Yığını ve Maliyet Yapısı
+
+[Kullanılacak her API/model: isim, birim maliyet, ne için kullanılacağı. Örnek: "OpenAI Whisper API (~$0.006/dk) — ses transkripsiyon için". Maliyet bilinmiyorsa "(Kaynak: doğrulanamadı)" ekle.]
+
+---
+
+## Mevcut Rakiplerin Neden Yetersiz Kaldığı
+
+[Rakip eksiklikleri: {complaints_summary[:200]}
+
+Bu eksiklikler gerçek mi yoksa alışkanlık sorunu mu? Rakipler bu açığı neden kapatmadı? Kaynakları göster.]
+
+---
+
+## Kritik Riskler
+
+[En az 3 somut risk. Her birini 1-2 cümleyle, net yaz.]
+
+---
+
+## Geliştirme Süresi ve Teknik Gerçekçilik
+
+[MVP kaç hafta, hangi API'ler kullanılacak (spesifik), teknik zorluk 1-5 üzerinden ve neden.]
+
+---
+
+## İlk Müşteriye Ulaşma Yolu
+
+[Reklam yok. Hangi topluluk veya kanal, neden orada? İlk 10 müşteri için somut adımlar.]
+
+---
+
+## Fiyatlandırma Mantığı
+
+[Önerilen aylık ücret ve gerekçesi. TAM/SAM/SOM varsa formülle göster, yoksa "güvenilir kaynak bulunamadı" yaz.]
+
+---
+
+## Sonuç
+
+[Nesnel değerlendirme: güçlü yanlar, zayıf yanlar. Hangi varsayımları doğrulamadan bu fikre zaman ayırmak hata olur?]
+
+---
+
+Sadece raporu yaz. Emoji kullanma."""
 
     try:
         llm_structured = ChatGroq(
