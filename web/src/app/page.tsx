@@ -26,6 +26,7 @@ export default function HomeDashboard() {
     { name: "Orkestratör", url: "#", icon: Users, mode: "orchestrate" },
     { name: "Rakip Ara", url: "#", icon: Search, mode: "reverse" },
     { name: "Trendler", url: "#", icon: LineChart, mode: "trends" },
+    { name: "Galeri", url: "/gallery", icon: Sparkles, href: "/gallery" },
   ];
 
   const handleScan = async () => {
