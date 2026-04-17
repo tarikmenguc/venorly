@@ -11,7 +11,6 @@ import {
   Cpu,
   Zap,
   ArrowRight,
-  Clock,
   CheckCircle2,
   XCircle,
   Sparkles,
@@ -19,6 +18,7 @@ import {
   Bell,
   CreditCard,
   Target,
+  FileDown,
 } from "lucide-react";
 
 interface DashboardStats {
@@ -272,6 +272,18 @@ export default function DashboardPage() {
                         <span className="text-xs text-muted-foreground">
                           {scan.leads_count} lead
                         </span>
+                      )}
+                      {scan.status === "completed" && (
+                        <a
+                          href={`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/api/scans/${scan.id}/pdf`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          title="PDF İndir"
+                          className="p-1.5 rounded-lg text-muted-foreground hover:text-white hover:bg-white/10 transition-all opacity-0 group-hover:opacity-100"
+                        >
+                          <FileDown className="w-4 h-4" />
+                        </a>
                       )}
                       <div className="flex items-center gap-1.5">
                         {scan.status === "completed" && <CheckCircle2 className="w-4 h-4 text-green-400" />}
