@@ -1,10 +1,16 @@
 import json
-from fastapi import FastAPI, Request, Response
+import os
+from fastapi import FastAPI, Request, Response, Depends
 from lib.pdf_generator import generate_report_pdf
 from lib.supabase_client import supabase
+from lib.auth_middleware import verify_clerk_token, verify_api_key
+from lib.logger import get_logger
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from typing import Optional
+
+logger = get_logger(__name__)
 
 # Heavy agent/scraper imports are LAZY-LOADED inside endpoints
 # to allow uvicorn to bind the port instantly on Render.com
@@ -17,9 +23,11 @@ async def health_check():
     return {"status": "ok", "message": "Backend is running"}
 
 # Allow Next.js frontend to communicate with this backend
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -72,7 +80,7 @@ async def get_chat_history(scan_id: str):
         return Response(content=str(e), status_code=500)
 
 @app.post("/api/chat")
-async def chat_endpoint(req: ChatRequest):
+async def chat_endpoint(req: ChatRequest, user: dict = Depends(verify_clerk_token)):
     """Rapor bağlamında veya bağımsız (freeform) AI sohbet — streaming SSE."""
     try:
         # Freeform vs report-bound mod belirleme
@@ -194,7 +202,7 @@ class ScanRequest(BaseModel):
     target_startup: str = ""
 
 @app.post("/api/scan")
-async def scan_endpoint(req: ScanRequest, request: Request):
+async def scan_endpoint(req: ScanRequest, request: Request, user: dict = Depends(verify_clerk_token)):
     # --- RATE LIMITING (Kullanım Limiti) Başlangıcı ---
     # Gerçek IP adresini alıyoruz (Vercel vb. arkasındaysa x-forwarded-for)
     client_ip = request.client.host
@@ -249,21 +257,21 @@ async def scan_endpoint(req: ScanRequest, request: Request):
     # --- RATE LIMITING Bitişi ---
 
     def event_generator():
-        print(f"[DEBUG] event_generator STARTED for mode={req.mode}")
+        logger.debug(f"event_generator STARTED for mode={req.mode}")
         yield f"data: {json.dumps({'node': 'init', 'state': {'currentNode': 'Modüller yükleniyor...'}})}\n\n"
 
         # Lazy imports — only loaded when a scan request arrives
         try:
-            print("[DEBUG] Importing agents...")
+            logger.debug("Importing agents...")
             from agent.idea_agent import idea_agent
             from agent.deep_agent import deep_agent
             from agent.reverse_agent import reverse_agent
             from agent.orchestrator import orchestrator_agent
             from scrapers.automation_intel import collect_automation_intelligence
             from scrapers.producthunt_gaps import find_product_gaps
-            print("[DEBUG] All imports successful!")
+            logger.debug("All imports successful!")
         except Exception as e:
-            print(f"[DEBUG] IMPORT ERROR: {e}")
+            logger.error(f"Import error: {e}")
             yield f"data: {json.dumps({'error': f'Import hatası: {str(e)}'})}\n\n"
             return
 
@@ -278,11 +286,14 @@ async def scan_endpoint(req: ScanRequest, request: Request):
                     "known_apps": [],
                     "matching_apps": [],
                     "competitor_complaints": [],
+                    "complaint_clusters": "",
                     "store_app_ids": [],
                     "store_reviews": [],
+                    "store_clusters": "",
                     "validation_details": "",
                     "competition_matrix": "",
                     "final_report": "",
+                    "seo_data": {},
                     "error": None
                 }
                 for event in idea_agent.stream(initial_state):
@@ -475,6 +486,190 @@ Rapor Formatı:
         "X-Accel-Buffering": "no"
     }
     return StreamingResponse(event_generator(), media_type="text/event-stream", headers=headers)
+
+# ============================================================
+# GALLERY API (Discover Gallery — V8)
+# ============================================================
+
+@app.get("/api/gallery")
+async def get_gallery(
+    page: int = 1,
+    per_page: int = 12,
+    category: str = "",
+    sort: str = "score",   # "score" | "date"
+):
+    """Galeri listesini sayfalanmış döner."""
+    try:
+        offset = (page - 1) * per_page
+
+        query = supabase.table("scans") \
+            .select("id, category, gallery_title, gallery_summary, gallery_tags, gallery_score, gallery_emoji, gallery_week, created_at") \
+            .eq("is_gallery", True) \
+            .eq("status", "completed")
+
+        if category:
+            query = query.eq("category", category)
+
+        # Sıralama
+        if sort == "score":
+            query = query.order("gallery_score", desc=True)
+        else:
+            query = query.order("created_at", desc=True)
+
+        # Toplam sayı için ayrı sorgu
+        count_query = supabase.table("scans") \
+            .select("id", count="exact") \
+            .eq("is_gallery", True) \
+            .eq("status", "completed")
+        if category:
+            count_query = count_query.eq("category", category)
+        count_res = count_query.execute()
+        total = count_res.count or 0
+
+        # Sayfalanmış veri
+        res = query.range(offset, offset + per_page - 1).execute()
+        items = res.data or []
+
+        return {
+            "items":    items,
+            "total":    total,
+            "page":     page,
+            "per_page": per_page,
+            "pages":    max(1, (total + per_page - 1) // per_page),
+        }
+    except Exception as e:
+        print(f"[Gallery] List Error: {e}")
+        return Response(content=str(e), status_code=500)
+
+
+@app.get("/api/gallery/stats")
+async def get_gallery_stats():
+    """Galeri özet istatistikleri."""
+    try:
+        res = supabase.table("scans") \
+            .select("category, gallery_score") \
+            .eq("is_gallery", True) \
+            .eq("status", "completed") \
+            .execute()
+        items = res.data or []
+
+        if not items:
+            return {"total_ideas": 0, "avg_score": 0, "top_category": None}
+
+        avg_score = round(sum(i.get("gallery_score", 0) for i in items) / len(items))
+        cat_count: dict = {}
+        for i in items:
+            c = i.get("category", "")
+            cat_count[c] = cat_count.get(c, 0) + 1
+        top_category = max(cat_count, key=cat_count.get) if cat_count else None
+
+        return {
+            "total_ideas":  len(items),
+            "avg_score":    avg_score,
+            "top_category": top_category,
+        }
+    except Exception as e:
+        return Response(content=str(e), status_code=500)
+
+
+@app.get("/api/gallery/categories")
+async def get_gallery_categories():
+    """Galeriden ayrı kategorileri + sayılarını döner."""
+    try:
+        res = supabase.table("scans") \
+            .select("category, gallery_emoji") \
+            .eq("is_gallery", True) \
+            .eq("status", "completed") \
+            .execute()
+        items = res.data or []
+
+        cat_map: dict = {}
+        for i in items:
+            c = i.get("category", "")
+            e = i.get("gallery_emoji", "💡")
+            if c not in cat_map:
+                cat_map[c] = {"category": c, "emoji": e, "count": 0}
+            cat_map[c]["count"] += 1
+
+        return {"categories": sorted(cat_map.values(), key=lambda x: -x["count"])}
+    except Exception as e:
+        return Response(content=str(e), status_code=500)
+
+
+@app.get("/api/gallery/{scan_id}")
+async def get_gallery_item(scan_id: str):
+    """Tek bir galeri fikrini tam rapor dahil döner."""
+    try:
+        res = supabase.table("scans") \
+            .select("*") \
+            .eq("id", scan_id) \
+            .eq("is_gallery", True) \
+            .single() \
+            .execute()
+        if not res.data:
+            return Response(content="Gallery item not found", status_code=404)
+        return res.data
+    except Exception as e:
+        print(f"[Gallery] Item Error: {e}")
+        return Response(content=str(e), status_code=404)
+
+
+# ============================================================
+# CHROME EXTENSION — Reverse Scan Endpoint
+# ============================================================
+
+class ExtensionScanRequest(BaseModel):
+    target_url: str              # Ziyaret edilen sitenin URL'si
+    target_domain: str           # Sadece domain (ör: "canva.com")
+    page_title: str = ""         # Sayfanın başlığı
+    page_description: str = ""   # Meta description
+    category_guess: str = ""     # Extension'ın tahmin ettiği kategori
+
+@app.post("/api/extension/scan")
+async def extension_scan(req: ExtensionScanRequest, request: Request):
+    """
+    Chrome Extension için özel Reverse Scan endpoint.
+    Ziyaret edilen sitenin domain'ini alıp Reverse Agent çalıştırır.
+    SSE streaming ile sonuçları döner.
+    """
+    # API key doğrulama (EXTENSION_API_KEY tanımlıysa zorunlu, dev modunda bypass)
+    verify_api_key(request, required=True)
+    def ext_generator():
+        yield f"data: {json.dumps({'node': 'init', 'state': {'currentNode': f'{req.target_domain} analiz ediliyor...'}})}\n\n"
+
+        try:
+            from agent.reverse_agent import reverse_agent
+
+            # Domain'den anlamlı bir startup adı çıkar
+            target_name = req.page_title or req.target_domain
+
+            initial_state = {
+                "target_startup":    target_name,
+                "startup_analysis":  "",
+                "competitors":       [],
+                "complaints":        [],
+                "matching_models":   [],
+                "disruption_report": "",
+                "error":             None,
+            }
+
+            for event in reverse_agent.stream(initial_state):
+                node_name = list(event.keys())[0]
+                result    = event[node_name]
+                yield f"data: {json.dumps({'node': node_name, 'state': result})}\n\n"
+
+            yield f"data: {json.dumps({'status': 'done'})}\n\n"
+
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    headers = {
+        "Cache-Control":    "no-cache",
+        "Connection":       "keep-alive",
+        "X-Accel-Buffering":"no",
+    }
+    return StreamingResponse(ext_generator(), media_type="text/event-stream", headers=headers)
+
 
 if __name__ == "__main__":
     import uvicorn
