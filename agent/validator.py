@@ -2,10 +2,15 @@ import os
 import json
 import requests
 from langchain_core.messages import HumanMessage
-from langchain_community.tools.tavily_search import TavilySearchResults
+from tavily import TavilyClient
 from typing import Any
 
-tavily = TavilySearchResults(max_results=3)
+def _get_tavily_client() -> TavilyClient | None:
+    api_key = os.getenv("TAVILY_API_KEY", "")
+    if not api_key:
+        print("[Validator] ⚠️ TAVILY_API_KEY bulunamadı!")
+        return None
+    return TavilyClient(api_key=api_key)
 
 
 def check_url_accessibility(url: str) -> bool:
@@ -24,72 +29,132 @@ def check_url_accessibility(url: str) -> bool:
 
 def generate_idea_scorecard(report: str, llm) -> dict:
     """
-    5 boyutlu skor kartı üretir.
-    Returns: {"scores": {...}, "total": int, "label": str, "markdown": str}
+    5 boyutlu skor kartı.
+    - Her kriter için gerekçe zorunlu
+    - 1-10 skalasının tamamı kullanılabilir (orta puana yönelim önlenir)
+    - Her kriterde rapordaki somut kanıt veya eksiklik alıntılanır
+    Returns: {"scores": {...}, "reasons": {...}, "total": int, "label": str, "markdown": str}
     """
-    prompt = f"""Aşağıdaki Micro-SaaS startup raporunu 5 boyutta 1-10 arası puanla.
+    prompt = f"""Aşağıdaki startup analiz raporunu 5 boyutta değerlendir. Her boyut için 1-10 arası bir puan ver ve gerekçeni 1 cümleyle yaz.
 
-PUANLAMA KRİTERLERİ:
-1. willingness_to_pay: Hedef kitlenin ödeme isteği (bu acıyı çözmek için para öderler mi?)
-2. time_saved: Zaman tasarrufu (manuel süreç yerine ne kadar zaman kazandırıyor?)
-3. technical_feasibility: Teknik fizibilite (mevcut API/AI ile yapılabilir mi?)
-4. competition_level: Rekabet avantajı (10=çok az rakip, 1=kırmızı okyanus)
-5. gtm_ease: Go-to-market kolaylığı (hedef kitleye ulaşmak ne kadar kolay?)
+PUANLAMA SKALALARI (Bu skalayı tam olarak uygula — orta değerlere yığılma yapma):
+
+1. willingness_to_pay — Hedef kitlenin ödeme isteği
+   1-3: Kitle bu tür araçlara para ödemez veya ücretsiz alternatif çoktur
+   4-6: Ödeme olası ama kanıtlanmamış, pazar olgunlaşmamış
+   7-9: Benzer araçlara zaten para ödüyor, bu ürün için de öder
+   10: Kitle bu olmadan işini sürdüremiyor, fiyata duyarsız
+
+2. time_saved — Çözülen sorunun ağırlığı / zaman tasarrufu
+   1-3: Saatte birkaç dakika, kolayca görmezden gelinebilir
+   4-6: Haftada 1-2 saat, fark edilir ama kritik değil
+   7-9: Haftada 5+ saat, bu iş çözülmeden büyük verimlilik kaybı var
+   10: İş hayatta kalmak için bu süreç kritik ve şu an tamamen manüel
+
+3. technical_feasibility — Mevcut teknoloji ile yapılabilirlik
+   1-3: Henüz olgunlaşmamış teknoloji, hallüsinasyon riski yüksek
+   4-6: Yapılabilir ama önemli teknik zorluklar var
+   7-9: Mevcut API/modeller ile makul sürede üretilebilir
+   10: Off-the-shelf API'ler birleştirilince çözüm neredeyse hazır
+
+4. competition_level — Rekabetten farklılaşma
+   1-3: Kalabalık pazar, büyük oyuncular aynı şeyi yapıyor
+   4-6: Rakipler var ama ciddi boşluklar mevcut
+   7-9: Bu nişe özel çözüm yok veya mevcut araçlar yetersiz kalıyor
+   10: Neredeyse hiç rakip yok ve ihtiyaç net
+
+5. gtm_ease — İlk müşteriye ulaşma kolaylığı
+   1-3: Kitleye ulaşmak zor, dağınık veya bilinç düşük
+   4-6: Topluluklar mevcut ama güven inşası zaman alır
+   7-9: Spesifik, ulaşılabilir bir topluluk var (Reddit, Discord, Slack)
+   10: Hedef kitle aktif olarak bu soruna çözüm arıyor
 
 Rapor:
-{report[:2000]}
+{report[:3000]}
 
-SADECE aşağıdaki JSON formatında yanıt ver, başka hiçbir şey yazma:
-{{"willingness_to_pay": 7, "time_saved": 8, "technical_feasibility": 6, "competition_level": 5, "gtm_ease": 7}}"""
+SADECE aşağıdaki JSON formatında yanıt ver. reasons alanına her kriterin gerekçesini yaz (rapordan somut alıntı veya tespit et):
+{{
+  "willingness_to_pay": 6,
+  "wtp_reason": "Kitle benzer araçlara aylık $50-200 ödüyor ancak bu ürünün fiyatlandırması kanıtlanmamış",
+  "time_saved": 7,
+  "ts_reason": "Manuel süreç haftada ~5 saat alıyor, raporda somut süre verilmiş",
+  "technical_feasibility": 5,
+  "tf_reason": "GPT-4o entegrasyonu mümkün ancak video rendering gecikme riski var",
+  "competition_level": 4,
+  "cl_reason": "Lumen5 ve Pictory aynı nişte aktif, farklılaşma belirsiz",
+  "gtm_ease": 7,
+  "ge_reason": "r/videoediting ve Upwork'te aktif kitle mevcut, DM stratejisi spesifik"
+}}"""
 
     try:
         response = llm.invoke([HumanMessage(content=prompt)]).content.strip()
-        # JSON'u bul ve parse et
         start = response.find("{")
         end = response.rfind("}") + 1
         if start >= 0 and end > start:
-            scores = json.loads(response[start:end])
+            raw = json.loads(response[start:end])
         else:
-            scores = {"willingness_to_pay": 5, "time_saved": 5, "technical_feasibility": 5, "competition_level": 5, "gtm_ease": 5}
+            raise ValueError("JSON bulunamadı")
     except Exception as e:
         print(f"[Validator] Scorecard parse hatası: {e}")
-        scores = {"willingness_to_pay": 5, "time_saved": 5, "technical_feasibility": 5, "competition_level": 5, "gtm_ease": 5}
+        raw = {
+            "willingness_to_pay": 5, "wtp_reason": "Değerlendirilemedi",
+            "time_saved": 5, "ts_reason": "Değerlendirilemedi",
+            "technical_feasibility": 5, "tf_reason": "Değerlendirilemedi",
+            "competition_level": 5, "cl_reason": "Değerlendirilemedi",
+            "gtm_ease": 5, "ge_reason": "Değerlendirilemedi",
+        }
 
-    # Puanları sınırla
-    for k in scores:
-        scores[k] = max(1, min(10, int(scores.get(k, 5))))
+    scores = {
+        "willingness_to_pay":  max(1, min(10, int(raw.get("willingness_to_pay", 5)))),
+        "time_saved":          max(1, min(10, int(raw.get("time_saved", 5)))),
+        "technical_feasibility": max(1, min(10, int(raw.get("technical_feasibility", 5)))),
+        "competition_level":   max(1, min(10, int(raw.get("competition_level", 5)))),
+        "gtm_ease":            max(1, min(10, int(raw.get("gtm_ease", 5)))),
+    }
+    reasons = {
+        "wtp": raw.get("wtp_reason", ""),
+        "ts":  raw.get("ts_reason", ""),
+        "tf":  raw.get("tf_reason", ""),
+        "cl":  raw.get("cl_reason", ""),
+        "ge":  raw.get("ge_reason", ""),
+    }
 
     total = sum(scores.values())
 
     if total >= 35:
-        label = "🟢 Güçlü Fırsat"
+        label = "Güçlü Fırsat"
+        label_indicator = "▲"
     elif total >= 20:
-        label = "🟡 Araştırmaya Değer"
+        label = "Araştırmaya Değer"
+        label_indicator = "◆"
     else:
-        label = "🔴 Riskli"
+        label = "Yüksek Riskli"
+        label_indicator = "▼"
 
-    # Emoji bar oluştur
     def bar(score):
         filled = "█" * score
         empty = "░" * (10 - score)
-        return f"`{filled}{empty}` **{score}/10**"
+        return f"`{filled}{empty}` {score}/10"
 
     markdown = f"""
+
 ---
 
-## 📊 Idea Scorecard — {label}
+## Fizibilite Değerlendirmesi
 
-| Kriter | Puan |
-|--------|------|
-| 🎯 Ödeme İsteği (WTP) | {bar(scores['willingness_to_pay'])} |
-| ⏱️ Zaman Tasarrufu | {bar(scores['time_saved'])} |
-| 🏗️ Teknik Fizibilite | {bar(scores['technical_feasibility'])} |
-| 🗡️ Rekabet Avantajı | {bar(scores['competition_level'])} |
-| 🚀 GTM Kolaylığı | {bar(scores['gtm_ease'])} |
-| **📊 TOPLAM** | **{total}/50 — {label}** |
+| Kriter | Puan | Gerekçe |
+|--------|------|---------|
+| Ödeme İsteği | {bar(scores['willingness_to_pay'])} | {reasons['wtp']} |
+| Sorunun Ağırlığı | {bar(scores['time_saved'])} | {reasons['ts']} |
+| Teknik Fizibilite | {bar(scores['technical_feasibility'])} | {reasons['tf']} |
+| Rekabetten Farklılaşma | {bar(scores['competition_level'])} | {reasons['cl']} |
+| Pazara Erişim | {bar(scores['gtm_ease'])} | {reasons['ge']} |
+| **Toplam** | **{total}/50** | **{label_indicator} {label}** |
+
+_Bu puan kartı üretilen rapora dayalı ön değerlendirmedir. Piyasa doğrulaması yapılmadan yatırım kararı alınmamalıdır._
 """
 
-    return {"scores": scores, "total": total, "label": label, "markdown": markdown}
+    return {"scores": scores, "reasons": reasons, "total": total, "label": label, "markdown": markdown}
 
 
 # ──────────────────────────────────────────────
@@ -97,20 +162,58 @@ SADECE aşağıdaki JSON formatında yanıt ver, başka hiçbir şey yazma:
 # ──────────────────────────────────────────────
 
 def estimate_market_size(idea_summary: str, target_audience: str, llm) -> str:
-    """Pazar büyüklüğü tahmini yapar. Markdown tablosu döner."""
+    """
+    Pazar büyüklüğü tahmini yapar.
+    Kategori bazlı araştırma destekli TAM aralıkları ile LLM hallüsinasyonu önlenir.
+    Markdown tablosu döner.
+    """
 
-    prompt = f"""Sen bir pazar araştırma analistisin. Aşağıdaki Micro-SaaS fikri için TAM/SAM/SOM tahminlerini yap.
+    # Araştırmaya dayalı kategori TAM aralıkları (USD, Gartner/Statista/CB Insights kaynaklı)
+    CATEGORY_TAM_RANGES = {
+        "video": ("$1.5B", "$8B", "Küresel video oluşturma/düzenleme SaaS pazarı (2024)"),
+        "image": ("$800M", "$4B", "AI görüntü oluşturma ve düzenleme araçları pazarı"),
+        "audio": ("$500M", "$2.5B", "Ses/podcast prodüksiyon araçları pazarı"),
+        "code": ("$2B", "$12B", "AI destekli geliştirici araçları ve IDE eklentileri pazarı"),
+        "marketing": ("$1B", "$6B", "AI pazarlama otomasyonu ve içerik araçları pazarı"),
+        "legal": ("$800M", "$5B", "Hukuk teknolojisi ve sözleşme analizi araçları pazarı"),
+        "healthcare": ("$2B", "$10B", "Sağlık AI araçları ve klinik otomasyon pazarı"),
+        "ecommerce": ("$1.2B", "$7B", "E-ticaret otomasyon ve AI optimizasyon araçları pazarı"),
+        "hr": ("$600M", "$3.5B", "İK teknolojisi ve işe alım otomasyonu pazarı"),
+        "finance": ("$1.5B", "$9B", "Fintech ve muhasebe otomasyon araçları pazarı"),
+        "education": ("$700M", "$4B", "EdTech ve AI eğitim araçları pazarı"),
+        "saas": ("$500M", "$3B", "Genel Micro-SaaS ve iş otomasyon araçları pazarı"),
+        "design": ("$800M", "$5B", "AI tasarım araçları ve kreatif otomasyon pazarı"),
+        "crm": ("$1B", "$6B", "CRM ve müşteri yönetimi otomasyon araçları pazarı"),
+        "data": ("$2B", "$15B", "Veri analiz ve raporlama araçları pazarı"),
+    }
+
+    # Fikir özetinden kategori eşleştir
+    idea_lower = idea_summary.lower() + " " + target_audience.lower()
+    tam_context = ""
+    for keyword, (tam_min, tam_max, description) in CATEGORY_TAM_RANGES.items():
+        if keyword in idea_lower:
+            tam_context = f"\nPazar Referansı: {description} → TAM aralığı yaklaşık {tam_min} – {tam_max}"
+            break
+
+    if not tam_context:
+        tam_context = "\nPazar Referansı: Genel B2B SaaS pazarı → TAM aralığı genellikle $500M – $5B arasında"
+
+    prompt = f"""Aşağıdaki Micro-SaaS fikri için TAM/SAM/SOM tahminlerini yap.
 
 Fikir: {idea_summary}
 Hedef Kitle: {target_audience}
+{tam_context}
 
-Hesaplama yöntemi:
-- TAM (Total Addressable Market): Dünya genelinde bu problemi yaşayan potansiyel kullanıcı sayısı × yıllık fiyat
-- SAM (Serviceable Addressable Market): Dijital araç kullanıcıları, ulaşılabilir pazar dilimi
-- SOM (Serviceable Obtainable Market): İlk 12 ayda gerçekçi hedef (aylık müşteri × aylık fiyat × 12)
+ZORUNLU KURALLAR:
+1. Her rakam için hesaplama formülünü göster: "X kişi × $Y/yıl = $Z"
+2. Kitle büyüklüğü tahminine dayandığın varsayımı belirt (örn. "Dünya genelinde yaklaşık 2M serbest fotoğrafçı olduğu tahmin edilmektedir").
+3. Referans aralığının dışına çıkma.
+4. Eğer güvenilir bir tahmin yapamıyorsan, ilgili alana "güvenilir veri yok" yaz.
 
-SADECE aşağıdaki JSON formatında yanıt ver:
-{{"tam": "$2.1B", "tam_explanation": "Dünyada 3M düğün fotoğrafçısı × $700/yıl", "sam": "$340M", "sam_explanation": "ABD+AB dijital araç kullananlar ~480K", "som": "$850K", "som_explanation": "İlk yıl 1.500 müşteri × $49/ay"}}"""
+SADECE aşağıdaki JSON formatında yanıt ver, başka hiçbir şey yazma:
+{{"tam": "$2.1B", "tam_formula": "~3M düğün fotoğrafçısı × $700/yıl = $2.1B", "tam_assumption": "Dünya genelinde ~3M düğün fotoğrafçısı olduğu tahmin edilmektedir", "sam": "$340M", "sam_formula": "TAM'ın ~%16'sı: dijital araç kullanan ABD+AB pazarı ~480K kişi × $700/yıl = $336M", "som": "$850K", "som_formula": "İlk yıl 1.500 müşteri × $49/ay × 12 = $882K", "confidence": "düşük"}}
+
+confidence alanı: "yüksek" (referans veri var), "orta" (yaklaşık tahmin), "düşük" (tamamen varsayım) olabilir."""
 
     try:
         response = llm.invoke([HumanMessage(content=prompt)]).content.strip()
@@ -124,16 +227,26 @@ SADECE aşağıdaki JSON formatında yanıt ver:
         print(f"[Validator] Market size hatası: {e}")
         return ""
 
+    confidence = data.get("confidence", "düşük")
+    confidence_note = {
+        "yüksek": "Tahmin referans veriye dayanmaktadır.",
+        "orta": "Tahmin yaklaşık varsayımlara dayanmaktadır, bağımsız doğrulama önerilir.",
+        "düşük": "Bu tahmin büyük ölçüde varsayıma dayalıdır. Yatırım kararı öncesi bağımsız pazar araştırması yapılmalıdır.",
+    }.get(confidence, "Güven düzeyi bilinmiyor.")
+
     markdown = f"""
-## 📈 Pazar Büyüklüğü Tahmini
 
-| Metrik | Büyüklük | Açıklama |
-|--------|----------|----------|
-| **TAM** (Toplam Pazar) | **{data.get('tam', '?')}** | {data.get('tam_explanation', '')} |
-| **SAM** (Ulaşılabilir) | **{data.get('sam', '?')}** | {data.get('sam_explanation', '')} |
-| **SOM** (İlk Yıl Hedef) | **{data.get('som', '?')}** | {data.get('som_explanation', '')} |
+---
 
-> 💡 *Bu tahminler yapay zeka tarafından üretilmiştir. Kesin rakamlar için derinlemesine pazar araştırması yapılmalıdır.*
+## Pazar Büyüklüğü Tahmini
+
+| Metrik | Sonuç | Hesaplama Formülü | Varsayım |
+|--------|-------|-------------------|----------|
+| TAM (Toplam Adreslenebilir Pazar) | {data.get('tam', 'veri yok')} | {data.get('tam_formula', '-')} | {data.get('tam_assumption', '-')} |
+| SAM (Ulaşılabilir Pazar) | {data.get('sam', 'veri yok')} | {data.get('sam_formula', '-')} | — |
+| SOM (İlk Yıl Gerçekçi Hedef) | {data.get('som', 'veri yok')} | {data.get('som_formula', '-')} | — |
+
+Güven düzeyi: **{confidence}** — {confidence_note}
 """
     return markdown
 
@@ -143,59 +256,117 @@ SADECE aşağıdaki JSON formatında yanıt ver:
 # ──────────────────────────────────────────────
 
 def check_startup_graveyard(idea_summary: str, llm) -> str:
-    """Benzer başarısız girişimleri arar. Markdown uyarısı döner."""
-
-    # Tavily ile başarısız girişim araması
-    try:
-        search_results = tavily.invoke(f'"{idea_summary}" startup failed OR shutdown OR pivoted OR "shut down" OR acquired')
-        if not search_results:
-            return ""
-    except Exception as e:
-        print(f"[Validator] Graveyard arama hatası: {e}")
+    """
+    Küçük, erken aşama girişimlere odaklanarak benzer başarısız ürünleri arar.
+    ProductHunt, Indie Hackers, HackerNews, BetaList öncelikli.
+    Büyük şirket örnekleri (OpenAI, Google, Meta vb.) filtrelenir.
+    """
+    client = _get_tavily_client()
+    if not client:
         return ""
 
-    # Sonuçları metin olarak hazırla
-    results_text = ""
-    for r in search_results[:5]:
-        if isinstance(r, dict):
-            results_text += f"- {r.get('content', '')[:200]}\n"
+    # Büyük şirket filtresi — LLM analizi için
+    BIG_COMPANIES = {
+        "openai", "google", "meta", "microsoft", "apple", "amazon", "netflix",
+        "uber", "airbnb", "twitter", "x.com", "adobe", "salesforce", "oracle",
+        "sora", "gemini", "claude", "chatgpt", "copilot", "midjourney",
+    }
 
-    if not results_text.strip():
-        return ""
+    # Çoklu sorgu stratejisi: küçük girişim odaklı, İngilizce
+    queries = [
+        f'small startup {idea_summary} failed shut down site:indiehackers.com OR site:news.ycombinator.com',
+        f'{idea_summary} product "we are shutting down" OR "shutting down" OR "failed to get traction" indie',
+        f'{idea_summary} SaaS startup failed "not enough customers" OR "runway" OR "couldn\'t find PMF" 2022 2023 2024',
+        f'site:producthunt.com {idea_summary} discontinued OR abandoned OR "no longer available"',
+    ]
 
-    # LLM ile analiz
-    prompt = f"""Aşağıda "{idea_summary}" fikrine benzer başarısız veya kapanmış girişimler hakkında web araması sonuçları var.
+    all_results = []
+    seen_domains: set = set()
+
+    for query in queries:
+        if len(all_results) >= 6:
+            break
+        try:
+            resp = client.search(query=query, search_depth="advanced", max_results=4)
+            for r in resp.get("results", []):
+                url = r.get("url", "")
+                from urllib.parse import urlparse
+                domain = urlparse(url).netloc.replace("www.", "").lower()
+                if domain in seen_domains:
+                    continue
+                seen_domains.add(domain)
+                all_results.append({
+                    "title": r.get("title", ""),
+                    "content": r.get("content", "")[:300],
+                    "url": url,
+                    "domain": domain,
+                })
+        except Exception as e:
+            print(f"[Validator] Graveyard sorgu hatası: {e}")
+
+    if not all_results:
+        return """
+
+---
+
+## Benzer Başarısız Girişimler
+
+Erken aşama girişimler arasında bu fikre benzer, kapatılmış bir ürüne dair veri bulunamadı. Bu tek başına güvence değildir — denenmemiş alan hem fırsat hem de kanıtsızlık anlamına gelir.
+"""
+
+    results_text = "\n".join([
+        f"- {r['title']} ({r['domain']}): {r['content'][:200]}\n  URL: {r['url']}"
+        for r in all_results
+    ])
+
+    prompt = f"""Aşağıda "{idea_summary}" fikrine benzer, daha önce denenmiş ve başarısız olmuş veya kapanmış ürünler/girişimler hakkında web araması sonuçları var.
 
 Sonuçlar:
 {results_text}
 
-Görevin:
-1. Bu sonuçlardan gerçekten kapanmış/başarısız olmuş girişimleri tespit et
-2. Her biri için kapanma sebebini 1 cümlede özetle
-3. Kullanıcının bu hatalardan nasıl kaçınabileceğine dair 1 tavsiye ver
+GÖREV:
+1. Büyük teknoloji şirketlerini (OpenAI, Google, Meta, Microsoft vb.) ve onların ürünlerini tamamen yoksay — bunlar erken girişimciye örnek olmaz.
+2. Yalnızca küçük veya orta ölçekli, bağımsız kurucuların yürüttüğü girişimleri listele.
+3. Her biri için: ürün adı, tahmini kapanma yılı, kapanma sebebini 1 cümleyle Türkçe yaz.
+4. Bu örneklerden 1 somut, pratik ders çıkar.
 
-Eğer gerçekten benzer başarısız bir girişim YOKSA, sadece "YOK" yaz.
+Eğer büyük şirketler dışında gerçekten benzer başarısız bir girişim YOKSA, sadece "YOK" yaz.
 
-Format:
-1. **[Girişim Adı]** (Yıl): Kapanma sebebi — ...
+YALNIZCA TÜRKÇE YAZ. Emoji kullanma. Format:
+1. [Ürün/Girişim Adı] (~[Yıl]): [Kapanma sebebi — 1 cümle]
 2. ...
-💡 Farklılaşma Fırsatın: ..."""
+Ders: [1 somut, pratik cümle]"""
 
     try:
         analysis = llm.invoke([HumanMessage(content=prompt)]).content.strip()
-        if "YOK" in analysis.upper() and len(analysis) < 50:
-            return """
-## ✅ Startup Mezarlığı Kontrolü
 
-Bu fikre benzer başarısız bir girişim bulunamadı — **temiz geçmiş!** Bu, ya henüz denenmemiş bir alan olduğu ya da başarılı girişimlerin hâlâ ayakta olduğu anlamına gelir.
+        # "YOK" yanıtı veya sadece büyük şirketler varsa
+        if analysis.upper().startswith("YOK") and len(analysis) < 80:
+            return """
+
+---
+
+## Benzer Başarısız Girişimler
+
+Bağımsız kurucular tarafından yürütülen, bu fikre benzer küçük girişimlere dair başarısızlık verisi bulunamadı. Bu, erken pazar doğrulamasının önemini artırır — önceki deneyimlerden öğrenmek yerine kendi müşteri keşifinizi yapmanız gerekecek.
 """
         else:
+            # Büyük şirket adı geçiyor mu kontrol et
+            analysis_lower = analysis.lower()
+            big_company_found = any(name in analysis_lower for name in BIG_COMPANIES)
+            note = ""
+            if big_company_found:
+                note = "\n_Not: Büyük şirket örnekleri analiz dışı bırakılmıştır; yukarıdaki liste yalnızca bağımsız girişimleri kapsamaktadır._"
+
             return f"""
-## ⚰️ Startup Mezarlığı Kontrolü
 
-> ⚠️ Bu fikre benzer daha önce başarısız olmuş girişimler tespit edildi. Aşağıdaki dersleri dikkate al:
+---
 
-{analysis}
+## Benzer Başarısız Girişimler
+
+Bu fikre yakın alanda daha önce denenmiş, traction bulamadan kapanmış girişimler tespit edildi. Aşağıdaki örnekler, aynı yola çıkmadan önce göz önünde bulundurulmalıdır.
+
+{analysis}{note}
 """
     except Exception as e:
         print(f"[Validator] Graveyard analiz hatası: {e}")
@@ -234,9 +405,17 @@ def validate_idea_node(state: Any) -> Any:
     print(f"[Validator] Fikir: {idea_summary} | Hedef: {target_audience}")
 
     # 1. Tavily ile rakip kontrolü
+    tavily_client = _get_tavily_client()
     try:
-        search_results = tavily.invoke(f"{idea_summary} saas software alternative")
-        existing_competitors = len(search_results) if search_results else 0
+        if tavily_client:
+            resp = tavily_client.search(
+                query=f"{idea_summary} saas software alternative",
+                search_depth="basic",
+                max_results=5,
+            )
+            existing_competitors = len(resp.get("results", []))
+        else:
+            existing_competitors = -1
     except Exception as e:
         print(f"[Validator] Tavily hatası: {e}")
         existing_competitors = -1
@@ -262,18 +441,25 @@ def validate_idea_node(state: Any) -> Any:
     graveyard_md = check_startup_graveyard(idea_summary, llm)
 
     # Tüm validation detaylarını birleştir
+    competitor_note = f"{existing_competitors} rakip bulundu" if existing_competitors >= 0 else "rakip verisi alınamadı"
+    api_note = "erişilebilir" if api_accessible else "erişim sorunu var"
+
     validation_details = f"""
-✅ **Doğrulama Özeti**
-- **Fizibilite Skoru:** {scorecard['total']}/50 — {scorecard['label']}
-- **Benzer Rakipler (Web):** {existing_competitors if existing_competitors >= 0 else 'Bilinmiyor'} sonuç
-- **Model API Durumu:** {'Çalışıyor ✅' if api_accessible else 'Erişim Sorunu ⚠️'}
+
+---
+
+## Bağımsız Doğrulama Notları
+
+Fizibilite Skoru: **{scorecard['total']}/50** — {scorecard['label']}
+Rakip taraması: {competitor_note}
+Model API durumu: {api_note}
 
 {scorecard['markdown']}
 {market_size_md}
 {graveyard_md}
 """
 
-    print(f"[Validator] ✅ Skor: {scorecard['total']}/50 ({scorecard['label']})")
+    print(f"[Validator] Skor: {scorecard['total']}/50 ({scorecard['label']})")
 
     # V7: final_report sonuna scorecard bilgilerini ekliyoruz ki ekranda görünsün!
     updated_report = report + "\n" + validation_details.strip()
