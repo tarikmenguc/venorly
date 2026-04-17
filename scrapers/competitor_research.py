@@ -1,168 +1,301 @@
 """
-Rakip Araştırma Modülü — Tavily Web Arama (V2)
-Çoklu sorgu stratejisi ile daha zengin şikayet verisi toplar.
-G2, Capterra, Reddit, Trustpilot + AlternativeTo kaynaklarından.
+Rakip Araştırma Modülü — V4
+- Tüm Tavily sorguları İngilizce (daha geniş sonuç, daha iyi kalite)
+- Domain bazlı dedup (URL değil domain)
+- Her rakip için: isim, URL, tahmini fiyat, ana özellik → yapılandırılmış çıktı
+- Sonuç < 5 ise farklı sorgularla retry
+- include_domains kısıtlaması YOK
 """
 
 import os
+from urllib.parse import urlparse
 from dotenv import load_dotenv
 from tavily import TavilyClient
 
 load_dotenv()
 
-TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
+# ── Sorgu şablonları (İngilizce) ──────────────────────────────────────────────
 
-REVIEW_DOMAINS = [
-    "g2.com", "capterra.com", "trustpilot.com",
-    "reddit.com", "producthunt.com", "getapp.com",
-    "alternativeto.net",
+# Birincil: mevcut araçları ve rakipleri bul
+PRIMARY_QUERIES = [
+    'best {category} software tools for {niche} 2025',
+    'top {category} SaaS alternatives comparison pricing',
+    '{category} tool reviews site:reddit.com OR site:g2.com OR site:capterra.com',
 ]
 
-# Her app için birden fazla sorgu şablonu
-QUERY_TEMPLATES = [
-    '"{name}" reviews complaints problems',
-    '"{name}" pricing expensive alternative',
-    '"{name}" bugs issues site:reddit.com',
+# Retry: daha geniş, farklı açılar
+RETRY_QUERIES = [
+    '{category} app pricing features review',
+    '{category} startup product hunt 2024 2025',
+    'alternatives to {category} tools small business',
+]
+
+# Şikayet araması (İngilizce)
+COMPLAINT_QUERIES = [
+    '"{name}" reviews complaints problems users',
+    '"{name}" pricing expensive alternative reddit',
+    '"{name}" bugs issues negative review 2024 2025',
+]
+
+COMPLAINT_RETRY_QUERIES = [
+    '"{name}" user feedback pain points',
+    '"{name}" SaaS problems limitations',
 ]
 
 
-def get_tavily_client():
-    if not TAVILY_API_KEY:
+def _get_client() -> TavilyClient | None:
+    api_key = os.getenv("TAVILY_API_KEY", "")
+    if not api_key:
         print("[CompetitorResearch] ⚠️  TAVILY_API_KEY bulunamadı!")
         return None
-    return TavilyClient(api_key=TAVILY_API_KEY)
+    return TavilyClient(api_key=api_key)
 
+
+def _extract_domain(url: str) -> str:
+    try:
+        return urlparse(url).netloc.replace("www.", "").lower()
+    except Exception:
+        return url
+
+
+def _clean_title(title: str) -> str:
+    """Tavily'nin sık verdiği gereksiz ekleri temizle."""
+    for suffix in [" - G2", " | Capterra", " | Reddit", " — Wikipedia", " | Product Hunt"]:
+        title = title.replace(suffix, "")
+    return title.strip()
+
+
+# ── Ana fonksiyon: Rakip listesi ──────────────────────────────────────────────
+
+def find_competitors(category: str, niche: str = "", min_results: int = 5) -> list[dict]:
+    """
+    Verilen kategori için rakipleri bulur.
+    Her rakip için: name, url, domain, snippet (özellik ipucu), pricing_hint
+
+    Returns:
+        [{"name": "...", "url": "...", "domain": "...", "snippet": "...", "pricing_hint": "..."}]
+    """
+    client = _get_client()
+    if not client:
+        return []
+
+    niche_str = niche or category
+    competitors = []
+    seen_domains: set[str] = set()
+
+    def _run_queries(templates: list[str]) -> None:
+        for tpl in templates:
+            if len(competitors) >= min_results:
+                break
+            query = tpl.format(category=category, niche=niche_str)
+            try:
+                resp = client.search(
+                    query=query,
+                    search_depth="advanced",
+                    max_results=8,
+                )
+                for r in resp.get("results", []):
+                    url = r.get("url", "")
+                    domain = _extract_domain(url)
+                    if not domain or domain in seen_domains:
+                        continue
+                    # Genel bilgi siteleri filtrele
+                    if any(skip in domain for skip in ["wikipedia", "youtube", "linkedin", "twitter", "facebook"]):
+                        continue
+                    seen_domains.add(domain)
+                    title = _clean_title(r.get("title", ""))
+                    snippet = r.get("content", "")[:300]
+                    pricing_hint = _extract_pricing_hint(snippet)
+                    competitors.append({
+                        "name": title or domain,
+                        "url": url,
+                        "domain": domain,
+                        "snippet": snippet,
+                        "pricing_hint": pricing_hint,
+                    })
+            except Exception as e:
+                print(f"[CompetitorResearch] Sorgu hatası ({query[:50]}): {e}")
+
+    # Birincil sorgular
+    print(f"[CompetitorResearch] Rakip aranıyor: '{category}' / '{niche_str}'")
+    _run_queries(PRIMARY_QUERIES)
+
+    # Yeterli değilse retry
+    if len(competitors) < min_results:
+        print(f"[CompetitorResearch] Retry: sadece {len(competitors)} sonuç, geniş sorgularla devam...")
+        _run_queries(RETRY_QUERIES)
+
+    print(f"[CompetitorResearch] {len(competitors)} rakip bulundu.")
+    return competitors[:10]  # Max 10
+
+
+def _extract_pricing_hint(text: str) -> str:
+    """Snippet içinden fiyat ipucu çıkar ($, /month, free, pricing)."""
+    import re
+    patterns = [
+        r'\$\d+[\d,]*(?:/mo(?:nth)?|/yr(?:ear)?)?',
+        r'free(?:\s+plan|\s+tier)?',
+        r'freemium',
+        r'starts?\s+at\s+\$\d+',
+        r'from\s+\$\d+',
+    ]
+    for pat in patterns:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            return m.group(0).strip()
+    return "bilinmiyor"
+
+
+def competitors_to_markdown_table(competitors: list[dict]) -> str:
+    """Rakip listesini Markdown tablosuna dönüştür."""
+    if not competitors:
+        return "_Rakip verisi bulunamadı._"
+
+    rows = []
+    for c in competitors:
+        name_link = f"[{c['name']}]({c['url']})" if c.get("url") else c["name"]
+        feature = c.get("snippet", "")[:120].replace("|", "/").replace("\n", " ")
+        pricing = c.get("pricing_hint", "bilinmiyor")
+        rows.append(f"| {name_link} | {feature} | {pricing} |")
+
+    header = "| Rakip | Ana Özellik / Açıklama | Fiyat İpucu |\n|-------|------------------------|-------------|"
+    return header + "\n" + "\n".join(rows)
+
+
+# ── Şikayet araması ───────────────────────────────────────────────────────────
 
 def search_competitor_complaints(app_names: list[str], max_per_app: int = 3) -> list[dict]:
     """
-    Her app için çoklu Tavily sorgusu ile şikayet araması yapar.
+    Her uygulama için İngilizce şikayet araması yapar.
+    Domain bazlı dedup.
 
     Returns:
         [{"app": "...", "source": "...", "title": "...", "content": "...", "url": "..."}]
     """
-    client = get_tavily_client()
+    client = _get_client()
     if not client:
         return []
 
     all_results = []
-    seen_urls = set()
+    seen_domains: set[str] = set()
 
     for app_name in app_names[:5]:
-        clean_name = app_name.strip()
-        if not clean_name:
+        name = app_name.strip()
+        if not name:
             continue
 
-        print(f"[CompetitorResearch] 🔍 Aranıyor: {clean_name}")
+        print(f"[CompetitorResearch] Şikayet aranıyor: {name}")
+        app_count = 0
 
-        for template in QUERY_TEMPLATES:
-            query = template.format(name=clean_name)
-
+        for tpl in COMPLAINT_QUERIES:
+            if app_count >= max_per_app:
+                break
+            query = tpl.format(name=name)
             try:
-                response = client.search(
-                    query=query,
-                    search_depth="basic",
-                    max_results=max_per_app,
-                    include_domains=REVIEW_DOMAINS,
-                )
-
-                for result in response.get("results", []):
-                    url = result.get("url", "")
-                    content = result.get("content", "")
-
-                    # Duplicate ve düşük kalite filtrele
-                    if url in seen_urls:
+                resp = client.search(query=query, search_depth="advanced", max_results=max_per_app)
+                for r in resp.get("results", []):
+                    url = r.get("url", "")
+                    domain = _extract_domain(url)
+                    content = r.get("content", "")
+                    if domain in seen_domains or len(content) < 50:
                         continue
-                    if len(content) < 50:
-                        continue
-
-                    seen_urls.add(url)
-                    all_results.append({
-                        "app": clean_name,
-                        "title": result.get("title", ""),
+                    seen_domains.add(domain)
+                    entry = {
+                        "app": name,
+                        "title": _clean_title(r.get("title", "")),
                         "content": content[:500],
                         "url": url,
-                        "source": _extract_domain(url),
-                    })
-
+                        "source": domain,
+                    }
+                    all_results.append(entry)
+                    app_count += 1
             except Exception as e:
-                print(f"[CompetitorResearch] ❌ Hata ({clean_name}, {template[:30]}): {e}")
+                print(f"[CompetitorResearch] Şikayet sorgu hatası ({name}): {e}")
 
-    print(f"[CompetitorResearch] ✅ Toplam {len(all_results)} sonuç bulundu")
+        # Retry
+        if app_count < 2:
+            print(f"[CompetitorResearch] Retry: {name} için az sonuç ({app_count})")
+            for tpl in COMPLAINT_RETRY_QUERIES:
+                if app_count >= max_per_app:
+                    break
+                query = tpl.format(name=name)
+                try:
+                    resp = client.search(query=query, search_depth="advanced", max_results=3)
+                    for r in resp.get("results", []):
+                        url = r.get("url", "")
+                        domain = _extract_domain(url)
+                        content = r.get("content", "")
+                        if domain in seen_domains or len(content) < 50:
+                            continue
+                        seen_domains.add(domain)
+                        all_results.append({
+                            "app": name,
+                            "title": _clean_title(r.get("title", "")),
+                            "content": content[:500],
+                            "url": url,
+                            "source": domain,
+                        })
+                        app_count += 1
+                except Exception as e:
+                    print(f"[CompetitorResearch] Retry hatası ({name}): {e}")
+
+        print(f"[CompetitorResearch]   {name}: {app_count} sonuç")
+
+    print(f"[CompetitorResearch] Toplam {len(all_results)} şikayet/yorum bulundu.")
     return all_results
 
 
 def search_app_reviews(app_name: str, max_results: int = 5) -> list[dict]:
     """
-    Tek bir app için Tavily ile kullanıcı yorumlarını arar.
-    Store review node'u fallback olarak kullanır.
-
-    Returns:
-        [{"score": 1, "text": "...", "app": "...", "source": "tavily_web", "thumbs_up": 0}]
+    Tek uygulama için İngilizce web yorumu araması.
+    store_reviews fallback olarak kullanır.
     """
-    client = get_tavily_client()
+    client = _get_client()
     if not client:
         return []
 
     queries = [
-        f'"{app_name}" user reviews complaints problems negative',
-        f'"{app_name}" alternative better than site:reddit.com',
+        f'"{app_name}" user reviews negative complaints problems',
+        f'"{app_name}" alternative better site:reddit.com',
     ]
 
     reviews = []
-    seen_urls = set()
+    seen_domains: set[str] = set()
 
     for query in queries:
         try:
-            response = client.search(
-                query=query,
-                search_depth="basic",
-                max_results=max_results,
-            )
-
-            for result in response.get("results", []):
-                url = result.get("url", "")
-                content = result.get("content", "")
-
-                if url in seen_urls or len(content) < 50:
+            resp = client.search(query=query, search_depth="advanced", max_results=max_results)
+            for r in resp.get("results", []):
+                url = r.get("url", "")
+                domain = _extract_domain(url)
+                content = r.get("content", "")
+                if domain in seen_domains or len(content) < 50:
                     continue
-                seen_urls.add(url)
-
+                seen_domains.add(domain)
                 reviews.append({
-                    "score": 1,  # Web şikayetleri = negatif varsayılır
+                    "score": 1,
                     "text": content[:400],
                     "app": app_name,
-                    "source": f"tavily_web ({_extract_domain(url)})",
+                    "source": f"web ({domain})",
                     "thumbs_up": 0,
                     "date": "",
                 })
-
         except Exception as e:
-            print(f"[CompetitorResearch] ❌ Review arama hatası ({app_name}): {e}")
+            print(f"[CompetitorResearch] Review hatası ({app_name}): {e}")
 
     return reviews
 
 
-def _extract_domain(url: str) -> str:
-    """URL'den alan adını çıkar."""
-    try:
-        from urllib.parse import urlparse
-        parsed = urlparse(url)
-        domain = parsed.netloc.replace("www.", "")
-        return domain
-    except Exception:
-        return url
+# ── Test ──────────────────────────────────────────────────────────────────────
 
-
-# Test
 if __name__ == "__main__":
-    print("=== Çoklu Sorgu Testi ===")
-    results = search_competitor_complaints(["Lumen5", "Pictory"])
-    for r in results:
-        print(f"\n[{r['app']}] ({r['source']})")
-        print(f"  {r['title']}")
-        print(f"  {r['content'][:120]}...")
+    print("=== Rakip Arama Testi (V4 — İngilizce sorgu, domain dedup) ===\n")
 
-    print("\n=== App Review Testi ===")
-    reviews = search_app_reviews("Lumen5")
-    for r in reviews:
-        print(f"  [{r['app']}] ({r['source']}): {r['text'][:100]}...")
+    comps = find_competitors("AI video generation", niche="marketing agencies")
+    print(competitors_to_markdown_table(comps))
+
+    print("\n=== Şikayet Testi ===")
+    complaints = search_competitor_complaints(["Lumen5", "Pictory"])
+    for c in complaints[:3]:
+        print(f"[{c['app']}] {c['source']}: {c['title']}")
+        print(f"  {c['content'][:100]}...\n")
