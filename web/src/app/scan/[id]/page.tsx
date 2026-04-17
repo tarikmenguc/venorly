@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
 import {
   ArrowLeft,
   FileText,
@@ -19,19 +19,20 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Badge } from "@/components/ui/badge";
 
-export default function ScanDetailPage({ params }: { params: { id: string } }) {
+export default function ScanDetailPage() {
   const router = useRouter();
+  const { id } = useParams<{ id: string }>();
   const [scan, setScan] = useState<ScanRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
 
   useEffect(() => {
     fetchScan();
-  }, [params.id]);
+  }, [id]);
 
   async function fetchScan() {
     try {
-      const data = await ScanDB.getById(params.id);
+      const data = await ScanDB.getById(id);
       setScan(data);
     } catch (e) {
       console.error("Scan fetch error:", e);
@@ -45,7 +46,7 @@ export default function ScanDetailPage({ params }: { params: { id: string } }) {
     try {
       // Backend'deki PDF endpoint'ine yönlendir
       const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
-      window.open(`${API_URL}/api/scans/${params.id}/pdf`, "_blank");
+      window.open(`${API_URL}/api/scans/${id}/pdf`, "_blank");
     } catch (e) {
       console.error("PDF Export Error:", e);
       alert("PDF oluşturulurken bir hata oluştu.");
@@ -85,6 +86,18 @@ export default function ScanDetailPage({ params }: { params: { id: string } }) {
 
   const reportContent = (scan as any).full_report?.final_report || (scan as any).full_report?.investment_memo || scan.report_preview;
 
+  // Validation score banner — validation_details'dan score çıkar
+  const validationDetails: string = (scan as any).full_report?.validation_details || "";
+  const scoreMatch = validationDetails.match(/Fizibilite Skoru.*?(\d+)\/50/);
+  const validationScore = scoreMatch ? parseInt(scoreMatch[1]) : null;
+  const scoreBanner = validationScore !== null
+    ? validationScore >= 35
+      ? { color: "green", label: "🟢 Güçlü Fırsat", bg: "bg-green-500/10 border-green-500/30", text: "text-green-400", desc: "Bu fikir yüksek potansiyel taşıyor." }
+      : validationScore >= 20
+        ? { color: "yellow", label: "🟡 Araştırmaya Değer", bg: "bg-yellow-500/10 border-yellow-500/30", text: "text-yellow-400", desc: "Ümit verici ancak bazı riskler mevcut." }
+        : { color: "red", label: "🔴 Riskli", bg: "bg-red-500/10 border-red-500/30", text: "text-red-400", desc: "Bu fikir önemli riskler içeriyor, dikkatli değerlendirin." }
+    : null;
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
@@ -100,7 +113,7 @@ export default function ScanDetailPage({ params }: { params: { id: string } }) {
                    {scan.mode}
                 </Badge>
               </div>
-              <p className="text-sm text-muted-foreground mt-1 font-mono opacity-50">ID: {params.id}</p>
+              <p className="text-sm text-muted-foreground mt-1 font-mono opacity-50">ID: {id}</p>
             </div>
             <div className="flex items-center gap-3">
               <button
@@ -154,6 +167,37 @@ export default function ScanDetailPage({ params }: { params: { id: string } }) {
               </div>
             </div>
         </div>
+
+        {/* Score Banner */}
+        {scoreBanner && (
+          <div className={`rounded-xl border p-4 flex items-center gap-4 ${scoreBanner.bg}`}>
+            <div className="text-2xl">{scoreBanner.label.split(" ")[0]}</div>
+            <div>
+              <p className={`font-bold text-sm ${scoreBanner.text}`}>
+                {scoreBanner.label} — {validationScore}/50
+              </p>
+              <p className="text-xs text-muted-foreground">{scoreBanner.desc}</p>
+            </div>
+            <div className="ml-auto">
+              <div className="flex gap-1">
+                {Array.from({ length: 10 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className={`h-2 w-4 rounded-full transition-colors ${
+                      i < Math.round((validationScore! / 50) * 10)
+                        ? scoreBanner.color === "green"
+                          ? "bg-green-500"
+                          : scoreBanner.color === "yellow"
+                            ? "bg-yellow-500"
+                            : "bg-red-500"
+                        : "bg-white/10"
+                    }`}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Report Content */}
         <div className="space-y-4">
