@@ -2,12 +2,20 @@ import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 
 // Stripe secret key initialization
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_dummy', {
+const stripeKey = process.env.STRIPE_SECRET_KEY;
+if (!stripeKey) {
+    console.warn("STRIPE_SECRET_KEY not configured - payment disabled");
+}
+const stripe = stripeKey ? new Stripe(stripeKey, {
     apiVersion: '2023-10-16' as any // Type assertion for compatibility if needed
-});
+}) : null;
 
 export async function POST(request: Request) {
     try {
+        if (!stripe) {
+            return NextResponse.json({ error: 'Payment system not configured' }, { status: 503 });
+        }
+
         const body = await request.json();
         const { planId, planName, price } = body;
 
