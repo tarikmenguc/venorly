@@ -63,3 +63,51 @@ CREATE TABLE chat_messages (
 ALTER TABLE chat_messages ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Enable read access for all users" ON chat_messages FOR SELECT USING (true);
 CREATE POLICY "Enable insert access for all users" ON chat_messages FOR INSERT WITH CHECK (true);
+
+-- ============================================================
+-- GALLERY (Discover Gallery — V8)
+-- Mevcut scans tablosuna gallery kolonları eklenir.
+-- Supabase SQL Editöründe çalıştır.
+-- ============================================================
+
+ALTER TABLE scans ADD COLUMN IF NOT EXISTS is_gallery    BOOLEAN DEFAULT false;
+ALTER TABLE scans ADD COLUMN IF NOT EXISTS gallery_title TEXT;
+ALTER TABLE scans ADD COLUMN IF NOT EXISTS gallery_summary TEXT;
+ALTER TABLE scans ADD COLUMN IF NOT EXISTS gallery_tags  TEXT[];
+ALTER TABLE scans ADD COLUMN IF NOT EXISTS gallery_score INT    DEFAULT 0;
+ALTER TABLE scans ADD COLUMN IF NOT EXISTS gallery_emoji TEXT   DEFAULT '💡';
+-- "2025-W15" formatı — aynı kategori + hafta için dedup
+ALTER TABLE scans ADD COLUMN IF NOT EXISTS gallery_week  TEXT;
+
+-- Duplikasyon önleme: aynı kategori + aynı hafta sadece 1 galeri kaydı
+CREATE UNIQUE INDEX IF NOT EXISTS idx_gallery_category_week
+    ON scans (category, gallery_week)
+    WHERE is_gallery = true;
+
+-- Galeri listeleme sorguları için bileşik index
+CREATE INDEX IF NOT EXISTS idx_gallery_listing
+    ON scans (is_gallery, gallery_score DESC, created_at DESC)
+    WHERE is_gallery = true;
+
+-- ============================================================
+-- ALERTS (Niş Alarm Sistemi — V8)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS alerts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    keyword TEXT NOT NULL,
+    email TEXT NOT NULL,
+    channels TEXT[] DEFAULT '{"reddit","github","huggingface"}',
+    frequency TEXT DEFAULT 'daily',  -- 'daily' | 'weekly'
+    is_active BOOLEAN DEFAULT true,
+    last_triggered_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE alerts ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Enable read access for all users"   ON alerts FOR SELECT USING (true);
+CREATE POLICY "Enable insert access for all users" ON alerts FOR INSERT WITH CHECK (true);
+CREATE POLICY "Enable update access for all users" ON alerts FOR UPDATE USING (true);
+CREATE POLICY "Enable delete access for all users" ON alerts FOR DELETE USING (true);
+
+CREATE INDEX IF NOT EXISTS idx_alerts_active ON alerts (is_active, frequency) WHERE is_active = true;
