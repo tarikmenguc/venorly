@@ -1,8 +1,6 @@
 "use client";
 
-export const dynamic = "force-dynamic";
-
-import { useEffect, useState, useCallback } from "react";
+import { Suspense, useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ScanDB } from "@/lib/scan-db";
@@ -56,7 +54,22 @@ interface GalleryStats {
 
 const PER_PAGE = 12;
 
+/** Default export wraps the real content in Suspense so useSearchParams() works during prerender */
 export default function GalleryPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-background flex items-center justify-center">
+          <div className="animate-pulse text-muted-foreground">Yükleniyor…</div>
+        </div>
+      }
+    >
+      <GalleryContent />
+    </Suspense>
+  );
+}
+
+function GalleryContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
