@@ -22,6 +22,7 @@ import {
   X,
   Calendar,
 } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 
 interface Lead {
   id: string;
@@ -102,8 +103,15 @@ export default function LeadsPage() {
   const fetchLeads = useCallback(async () => {
     setLoading(true);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+
       const params = filter !== "all" ? `?status=${filter}` : "";
-      const res = await fetch(`/api/leads${params}`);
+      const res = await fetch(`/api/leads${params}`, {
+        headers: {
+          ...(token && { "Authorization": `Bearer ${token}` })
+        }
+      });
       const data = await res.json();
       setAllLeads(data.leads || []);
       setStats(data.stats || null);
@@ -146,9 +154,15 @@ export default function LeadsPage() {
 
   async function updateStatus(id: string, status: string) {
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+
       await fetch("/api/leads", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          ...(token && { "Authorization": `Bearer ${token}` })
+        },
         body: JSON.stringify({ id, status }),
       });
       fetchLeads();

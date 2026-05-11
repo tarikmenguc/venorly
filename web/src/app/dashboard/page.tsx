@@ -22,6 +22,7 @@ import {
   Target,
   FileDown,
 } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 
 interface DashboardStats {
   total_scans: number;
@@ -70,7 +71,15 @@ export default function DashboardPage() {
 
   async function fetchDashboard() {
     try {
-      const res = await fetch("/api/dashboard");
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+      const res = await fetch(`${API_URL}/api/dashboard`, {
+        headers: {
+          ...(token && { "Authorization": `Bearer ${token}` })
+        }
+      });
       const data = await res.json();
       setStats(data.stats);
       setRecentScans(data.recent_scans || []);

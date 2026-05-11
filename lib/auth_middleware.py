@@ -2,16 +2,14 @@ import os
 import jwt
 from fastapi import HTTPException, Request
 
-# DEV_MODE: CLERK_PUBLIC_KEY tanımlı değilse local geliştirme için auth bypass
-_DEV_MODE = not bool(os.getenv("CLERK_PUBLIC_KEY"))
+# AUTH BYPASS: Local geliştirme veya API key tanımlanmamışsa
+_AUTH_BYPASS = not bool(os.getenv("CLERK_PUBLIC_KEY")) and not bool(os.getenv("SUPABASE_JWT_SECRET"))
 
-def verify_clerk_token(request: Request) -> dict:
+def verify_user_token(request: Request) -> dict:
     """
-    Clerk JWT token doğrulama middleware'i.
-    CLERK_PUBLIC_KEY env değişkeni yoksa (local dev) auth bypass yapılır
-    ve {"sub": "dev_user", "dev_mode": True} döner.
+    Kullanıcı token doğrulama middleware'i (Supabase & Clerk destekler).
     """
-    if _DEV_MODE:
+    if _AUTH_BYPASS:
         return {"sub": "dev_user", "dev_mode": True}
 
     authorization = request.headers.get("Authorization")
@@ -19,20 +17,34 @@ def verify_clerk_token(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="Authorization header gerekli")
 
     token = authorization.split(" ")[1]
-    clerk_public_key = os.getenv("CLERK_PUBLIC_KEY", "")
 
+    # 1. Supabase Doğrulaması (Öncelikli)
     try:
-        payload = jwt.decode(
-            token,
-            clerk_public_key,
-            algorithms=["RS256"],
-            options={"verify_signature": True}
-        )
-        return payload
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token süresi dolmuş")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Geçersiz token")
+        from lib.supabase_client import supabase
+        user_res = supabase.auth.get_user(token)
+        if user_res and user_res.user:
+            # Pydantic modelini dict'e çevir
+            return user_res.user.__dict__
+    except Exception:
+        pass
+
+    # 2. Clerk Fallback (Eski sistem uyumluluğu için)
+    clerk_public_key = os.getenv("CLERK_PUBLIC_KEY", "")
+    if clerk_public_key:
+        try:
+            payload = jwt.decode(
+                token,
+                clerk_public_key,
+                algorithms=["RS256"],
+                options={"verify_signature": True}
+            )
+            return payload
+        except jwt.ExpiredSignatureError:
+            raise HTTPException(status_code=401, detail="Token süresi dolmuş")
+        except jwt.InvalidTokenError:
+            raise HTTPException(status_code=401, detail="Geçersiz token")
+
+    raise HTTPException(status_code=401, detail="Geçersiz veya eksik kimlik bilgisi")
 
 def verify_api_key(request: Request, required: bool = True) -> bool:
     """

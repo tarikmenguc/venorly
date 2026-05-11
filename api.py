@@ -3,7 +3,7 @@ import os
 from fastapi import FastAPI, Request, Response, Depends
 from lib.pdf_generator import generate_report_pdf
 from lib.supabase_client import supabase
-from lib.auth_middleware import verify_clerk_token, verify_api_key
+from lib.auth_middleware import verify_user_token, verify_api_key
 from lib.logger import get_logger
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,12 +23,18 @@ async def health_check():
     return {"status": "ok", "message": "Backend is running"}
 
 # Allow Next.js frontend to communicate with this backend
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+raw_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000")
+ALLOWED_ORIGINS = [o.strip() for o in raw_origins.split(",") if o.strip()]
+
+# If "*" is in origins, allow_credentials must be False
+allow_all = "*" in ALLOWED_ORIGINS
+if allow_all:
+    ALLOWED_ORIGINS = ["*"]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
+    allow_credentials=not allow_all,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -80,7 +86,7 @@ async def get_chat_history(scan_id: str):
         return Response(content=str(e), status_code=500)
 
 @app.post("/api/chat")
-async def chat_endpoint(req: ChatRequest, user: dict = Depends(verify_clerk_token)):
+async def chat_endpoint(req: ChatRequest, user: dict = Depends(verify_user_token)):
     """Rapor bağlamında veya bağımsız (freeform) AI sohbet — streaming SSE."""
     try:
         # Freeform vs report-bound mod belirleme
@@ -202,7 +208,7 @@ class ScanRequest(BaseModel):
     target_startup: str = ""
 
 @app.post("/api/scan")
-async def scan_endpoint(req: ScanRequest, request: Request, user: dict = Depends(verify_clerk_token)):
+async def scan_endpoint(req: ScanRequest, request: Request, user: dict = Depends(verify_user_token)):
     # --- RATE LIMITING (Kullanım Limiti) Başlangıcı ---
     # Gerçek IP adresini alıyoruz (Vercel vb. arkasındaysa x-forwarded-for)
     client_ip = request.client.host
