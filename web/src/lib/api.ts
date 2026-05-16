@@ -6,9 +6,6 @@ import { supabase } from './supabase';
  * - Sunucuda (SSR): NEXT_PUBLIC_API_URL veya localhost fallback
  */
 export function getApiUrl(): string {
-  if (typeof window !== 'undefined') {
-    return ''; // Tarayıcıda relative: /api/scan → Vercel proxy → Render
-  }
   return process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
 }
 
