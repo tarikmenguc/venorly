@@ -22,7 +22,7 @@ import {
   Target,
   FileDown,
 } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { apiFetch } from "@/lib/api";
 
 interface DashboardStats {
   total_scans: number;
@@ -71,15 +71,7 @@ export default function DashboardPage() {
 
   async function fetchDashboard() {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
-      const res = await fetch(`${API_URL}/api/dashboard`, {
-        headers: {
-          ...(token && { "Authorization": `Bearer ${token}` })
-        }
-      });
+      const res = await apiFetch('/api/dashboard');
       const data = await res.json();
       setStats(data.stats);
       setRecentScans(data.recent_scans || []);
@@ -286,7 +278,7 @@ export default function DashboardPage() {
                       )}
                       {scan.status === "completed" && (
                         <a
-                          href={`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/api/scans/${scan.id}/pdf`}
+                          href={`/api/scans/${scan.id}/pdf`}
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={(e) => e.stopPropagation()}
