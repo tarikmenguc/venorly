@@ -247,7 +247,7 @@ export default function GalleryDetailPage() {
             Bu Kategoriyi Yeniden Tara
           </Link>
           <a
-            href={`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/api/scans/${item.id}/pdf`}
+            href={`/api/scans/${item.id}/pdf`}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-2 px-4 py-2.5 border border-border rounded-xl text-sm hover:border-primary/50 hover:text-primary transition-colors"
