@@ -46,9 +46,7 @@ export default function ScanDetailPage() {
   const handleExportPDF = async () => {
     setIsExporting(true);
     try {
-      // Backend'deki PDF endpoint'ine yönlendir
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
-      window.open(`${API_URL}/api/scans/${id}/pdf`, "_blank");
+      window.open(`/api/scans/${id}/pdf`, "_blank");
     } catch (e) {
       console.error("PDF Export Error:", e);
       alert("PDF oluşturulurken bir hata oluştu.");
