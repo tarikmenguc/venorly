@@ -11,7 +11,7 @@ import { Home, Lightbulb, Search, Settings, LineChart, Cpu, Sparkles, Loader2, U
 import { Badge } from "@/components/ui/badge";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { supabase } from "@/lib/supabase";
+import { apiFetch } from "@/lib/api";
 
 export default function HomeDashboard() {
   const [category, setCategory] = useState("");
@@ -43,19 +43,9 @@ export default function HomeDashboard() {
     setLeads([]);
 
     try {
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
-      
-      // Get session token for Auth
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
-
-      const response = await fetch(`${API_URL}/api/scan`, {
+      const response = await apiFetch('/api/scan', {
         method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          ...(token && { "Authorization": `Bearer ${token}` })
-        },
-        // Use the current mode state, default to the currently selected mode
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode: mode, category }),
       });
 
