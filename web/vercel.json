@@ -3,10 +3,14 @@
   "buildCommand": "npm run build",
   "installCommand": "npm install",
   "rewrites": [
-    {
-      "source": "/api/(.*)",
-      "destination": "https://startup-idea-finder-fhjk.onrender.com"
-    }
+    { "source": "/api/scan", "destination": "https://startup-idea-finder-fhjk.onrender.com/api/scan" },
+    { "source": "/api/chat", "destination": "https://startup-idea-finder-fhjk.onrender.com/api/chat" },
+    { "source": "/api/chat/:path*", "destination": "https://startup-idea-finder-fhjk.onrender.com/api/chat/:path*" },
+    { "source": "/api/gallery", "destination": "https://startup-idea-finder-fhjk.onrender.com/api/gallery" },
+    { "source": "/api/gallery/:path*", "destination": "https://startup-idea-finder-fhjk.onrender.com/api/gallery/:path*" },
+    { "source": "/api/extension/:path*", "destination": "https://startup-idea-finder-fhjk.onrender.com/api/extension/:path*" },
+    { "source": "/api/scans/:path*/pdf", "destination": "https://startup-idea-finder-fhjk.onrender.com/api/scans/:path*/pdf" },
+    { "source": "/api/health", "destination": "https://startup-idea-finder-fhjk.onrender.com/api/health" }
   ],
   "headers": [
     {

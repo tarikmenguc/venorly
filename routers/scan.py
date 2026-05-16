@@ -193,6 +193,7 @@ async def scan_endpoint(req: ScanRequest, request: Request, user: dict = Depends
                     "agent_log": [],
                     "error": None,
                 }
+                scan_id = None
                 for event in orchestrator_agent.stream(initial_state):
                     node_name = list(event.keys())[0]
                     result = event[node_name]
@@ -236,7 +237,7 @@ async def scan_endpoint(req: ScanRequest, request: Request, user: dict = Depends
                             print(f"[API] Supabase kayıt hatası: {e}")
 
                     data = {"node": node_name, "state": result}
-                    if 'scan_id' in dir() and scan_id:
+                    if scan_id:
                         data["scan_id"] = scan_id
                     yield f"data: {json.dumps(data)}\n\n"
 

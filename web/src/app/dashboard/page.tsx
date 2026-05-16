@@ -22,7 +22,6 @@ import {
   Target,
   FileDown,
 } from "lucide-react";
-import { apiFetch } from "@/lib/api";
 
 interface DashboardStats {
   total_scans: number;
@@ -71,7 +70,7 @@ export default function DashboardPage() {
 
   async function fetchDashboard() {
     try {
-      const res = await apiFetch('/api/dashboard');
+      const res = await fetch('/api/dashboard');
       const data = await res.json();
       setStats(data.stats);
       setRecentScans(data.recent_scans || []);
