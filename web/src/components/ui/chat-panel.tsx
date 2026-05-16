@@ -5,7 +5,7 @@ import {
   MessageSquare, X, Send, Loader2, Sparkles,
   DollarSign, Target, Wrench, BarChart3, Swords, Lightbulb
 } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { apiFetch } from "@/lib/api";
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -70,16 +70,7 @@ export function ChatPanel({ scanId, reportContext, alwaysVisible = false }: Chat
   async function loadHistory() {
     if (!scanId) return;
     try {
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
-      
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
-
-      const res = await fetch(`${API_URL}/api/chat/${scanId}`, {
-        headers: {
-          ...(token && { "Authorization": `Bearer ${token}` })
-        }
-      });
+      const res = await apiFetch(`/api/chat/${scanId}`);
       const data = await res.json();
       if (data.messages) {
         setMessages(data.messages.map((m: any) => ({ role: m.role, content: m.content })));
@@ -105,17 +96,9 @@ export function ChatPanel({ scanId, reportContext, alwaysVisible = false }: Chat
     setMessages(prev => [...prev, { role: "assistant", content: "" }]);
 
     try {
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
-
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
-
-      const res = await fetch(`${API_URL}/api/chat`, {
+      const res = await apiFetch('/api/chat', {
         method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          ...(token && { "Authorization": `Bearer ${token}` })
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           scan_id: scanId || "",
           session_id: isFreeform ? sessionId : "",
