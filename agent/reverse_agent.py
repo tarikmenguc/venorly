@@ -2,8 +2,8 @@ import os
 import json
 from typing import TypedDict
 from langgraph.graph import StateGraph, END
-from langchain_groq import ChatGroq
-from langchain_community.tools.tavily_search import TavilySearchResults
+from lib.llm import get_llm
+from lib.tavily_client import get_tavily_client as _get_tavily
 
 # --- 1. State Tanımı ---
 class ReverseState(TypedDict):
@@ -16,9 +16,17 @@ class ReverseState(TypedDict):
     final_report: str
     error: str
 
-# --- 2. Araçlar ve LLM ---
-llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.2)
-tavily_search = TavilySearchResults(max_results=3)
+# --- 2. Araçlar ve LLM (lazy başlatma — import yan etkisi yok) ---
+def _get_llm():
+    return get_llm(temp=0.2)
+
+def _tavily_search(query: str, max_results: int = 3) -> list[dict]:
+    """TavilyClient.search() sonuçlarını liste olarak döner."""
+    try:
+        return _get_tavily().search(query, max_results=max_results).get("results", [])
+    except Exception as e:
+        print(f"[ReverseAgent] Tavily hatası: {e}")
+        return []
 
 # --- 3. Node'lar ---
 
@@ -35,9 +43,9 @@ def analyze_startup_node(state: ReverseState):
     """
     
     try:
-        search_results = tavily_search.invoke(f"{target} software saas app what it does pricing")
+        search_results = _tavily_search(f"{target} software saas app what it does pricing")
         analysis_prompt = f"Gelen arama sonuçları: {json.dumps(search_results)}. \n{prompt}"
-        analysis = llm.invoke(analysis_prompt).content
+        analysis = _get_llm().invoke(analysis_prompt).content
         return {"startup_analysis": analysis}
     except Exception as e:
         return {"error": f"Analyze hatası: {e}"}
@@ -56,7 +64,7 @@ def find_competitors_node(state: ReverseState):
     """
     
     try:
-        result = llm.invoke(prompt).content
+        result = _get_llm().invoke(prompt).content
         competitors = [c.strip() for c in result.split(",") if c.strip()][:3]
         if not competitors:
             competitors = [target] # Fallback
@@ -98,25 +106,20 @@ def find_matching_ai_model_node(state: ReverseState):
     Şikayetler: {complaints_text[:1000]}
     """
     
-    keywords = llm.invoke(prompt).content
+    keywords = _get_llm().invoke(prompt).content
     print(f"  [Reverse] Arama kelimeleri: {keywords}")
-    
+
     matching_models = []
-    from tavily import TavilyClient
-    try:
-        tclient = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
-        results = tclient.search(
-            f"trending AI models APIs tools for {keywords.strip()} 2024 2025",
-            max_results=5, search_depth="basic"
-        )
-        for r in results.get("results", []):
-            matching_models.append({
-                "name": r.get("title", ""),
-                "description": r.get("content", "")[:300],
-                "url": r.get("url", ""),
-            })
-    except Exception as e:
-        print(f"  [Reverse] ⚠️ Tavily model arama hatası: {e}")
+    model_results = _tavily_search(
+        f"trending AI models APIs tools for {keywords.strip()} 2024 2025",
+        max_results=5
+    )
+    for r in model_results:
+        matching_models.append({
+            "name": r.get("title", ""),
+            "description": r.get("content", "")[:300],
+            "url": r.get("url", ""),
+        })
             
     return {"matching_models": matching_models}
 
@@ -166,7 +169,7 @@ def generate_disruption_report_node(state: ReverseState):
     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     """
     
-    report = llm.invoke(prompt).content
+    report = _get_llm().invoke(prompt).content
     return {"final_report": report}
 
 # --- 4. Graph Oluşturma ---

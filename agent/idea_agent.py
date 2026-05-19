@@ -5,7 +5,6 @@ Faz 18: ChromaDB kaldırıldı — tüm vektör aramaları Tavily web aramasıyl
 """
 
 import os
-import random
 import sys
 from typing import TypedDict, List, Optional
 
@@ -21,28 +20,9 @@ sys.path.insert(0, BASE_DIR)
 load_dotenv()
 
 # ──────────────────────────────────────────────
-# MODEL KURULUMU (ChromaDB kaldırıldı — Tavily kullanılıyor)
+# MODEL KURULUMU — merkezi fabrika lib/llm.py'de
 # ──────────────────────────────────────────────
-
-_llm = None
-
-
-def get_llm(provider="groq", temp=0.7):
-    """LLM modelini döndürür. Provider: 'groq' veya 'gemini'"""
-    if provider == "gemini" and os.getenv("GOOGLE_API_KEY"):
-        from langchain_google_genai import ChatGoogleGenerativeAI
-        return ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash",
-            temperature=temp,
-            google_api_key=os.getenv("GOOGLE_API_KEY")
-        )
-    
-    # Fallback to default Groq
-    return ChatGroq(
-        model="llama-3.3-70b-versatile",
-        api_key=os.getenv("GROQ_API_KEY"),
-        temperature=temp,
-    )
+from lib.llm import get_llm  # noqa: E402
 
 
 # ──────────────────────────────────────────────
@@ -53,15 +33,22 @@ class AgentState(TypedDict):
     user_category: str               # "video generation", "image", vs.
     trending_models: List[dict]      # fetch_trending_models_node çıktısı
     matching_apps: List[dict]        # match_to_market_node çıktısı
-    competitor_complaints: List[dict] # scrape_competitor_reviews_node çıktısı  [FAZ 2]
-    complaint_clusters: str           # cluster_complaints_node çıktısı        [FAZ 2]
-    store_app_ids: List[dict]        # find_store_app_node çıktısı              [FAZ 3]
-    store_reviews: List[dict]        # scrape_store_reviews_node çıktısı        [FAZ 3]
-    store_clusters: str              # cluster_store_problems_node çıktısı      [FAZ 3]
-    competition_matrix: str          # competition_matrix_node çıktısı          [FAZ 9]
+    competitor_complaints: List[dict] # scrape_competitor_reviews_node çıktısı
+    complaint_clusters: str           # cluster_complaints_node çıktısı
+    store_app_ids: List[dict]        # find_store_app_node çıktısı
+    store_reviews: List[dict]        # scrape_store_reviews_node çıktısı
+    store_clusters: str              # cluster_store_problems_node çıktısı
+    competition_matrix: str          # competition_matrix_node çıktısı
     final_report: str                # generate_opportunity_node çıktısı
-    validation_details: str          # validate_idea_node çıktısı               [FAZ 9]
-    seo_data: dict                   # google_trends verisi                      [V8]
+    validation_details: str          # validate_idea_node çıktısı
+    seo_data: dict                   # google_trends verisi
+    # --- İki aşamalı orkestrasyon (S3) ---
+    market_overview: str             # Aşama A çıktısı: pazar özeti + alt-niş önerileri
+    sub_niche: str                   # Kullanıcının seçtiği alt-niş (Phase A → B köprüsü)
+    market_sizing: dict              # compute_market_sizing_node çıktısı
+    unit_economics: dict             # compute_unit_economics_node çıktısı
+    gtm_assets: str                  # generate_gtm_assets_node çıktısı
+    report_json: dict                # generate_opportunity_node — ham JSON (Auditor için)
     error: Optional[str]
 
 
@@ -70,38 +57,27 @@ class AgentState(TypedDict):
 # ──────────────────────────────────────────────
 
 def fetch_trending_models_node(state: AgentState) -> AgentState:
-    """Tavily web aramasıyla trend AI modellerini/araçlarını bulur."""
+    """ChromaDB'den önce arar; sonuç yetersizse Tavily'ye düşer."""
     query = state["user_category"] or "trending AI model"
-    print(f"[Agent] Node 1 → fetch_trending_models (Tavily) | query: '{query}'")
+    print(f"[Agent] Node 1 → fetch_trending_models | query: '{query}'")
 
-    try:
-        from tavily import TavilyClient
-        tavily = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
-        results = tavily.search(
-            f"trending AI models tools for {query} 2024 2025",
-            max_results=10,
-            search_depth="basic"
-        )
-    except Exception as e:
-        print(f"[Agent] ❌ Tavily model arama hatası: {e}")
-        return {**state, "trending_models": [], "error": str(e)}
+    from lib.retrieval import retrieve
+    docs = retrieve(query, need="trending_models", category=query, k=8)
 
-    all_models = []
-    for r in results.get("results", []):
-        all_models.append({
-            "content":   r.get("content", "")[:300],
-            "name":      r.get("title", ""),
-            "model_id":  "",
+    models = [
+        {
+            "content":   d["content"][:300],
+            "name":      d["metadata"].get("name") or d["metadata"].get("title", ""),
+            "model_id":  d["metadata"].get("model_id", ""),
             "category":  query,
-            "source":    "tavily_web",
-            "downloads": "N/A",
-            "url":       r.get("url", ""),
-        })
+            "source":    d["metadata"].get("source", ""),
+            "downloads": d["metadata"].get("downloads", "N/A"),
+            "url":       d["metadata"].get("url", ""),
+        }
+        for d in docs
+    ]
 
-    sample_size = min(8, len(all_models))
-    models = random.sample(all_models, sample_size) if all_models else []
-
-    print(f"[Agent] ✅ {len(all_models)} model bulundu → {len(models)} rastgele seçildi.")
+    print(f"[Agent] ✅ {len(models)} model döndürüldü.")
     return {**state, "trending_models": models, "error": None}
 
 
@@ -111,33 +87,49 @@ def fetch_trending_models_node(state: AgentState) -> AgentState:
 
 def match_to_market_node(state: AgentState) -> AgentState:
     """
-    İngilizce sorgularla pazardaki mevcut SaaS uygulamalarını bulur.
-    Domain bazlı dedup, en az 5 sonuç, retry mekanizması.
+    Önce ChromaDB startup_apps koleksiyonundan rakip uygulamaları çeker.
+    Yetersiz sonuçta competitor_research (Tavily) fallback'e düşer.
     """
-    print(f"[Agent] Node 2 → match_to_market | kategori: '{state['user_category']}'")
+    category = state["user_category"]
+    print(f"[Agent] Node 2 → match_to_market | kategori: '{category}'")
 
-    try:
-        from scrapers.competitor_research import find_competitors
-        category = state["user_category"]
-        competitors = find_competitors(category=category, niche=category, min_results=5)
-    except Exception as e:
-        print(f"[Agent] ❌ Rakip arama hatası: {e}")
-        competitors = []
+    from lib.retrieval import retrieve
+    docs = retrieve(category, need="market_apps", category=category, k=8)
 
-    # Eski format ile uyumlu hale getir (state'teki diğer node'lar name/url bekliyor)
-    all_apps = []
-    for c in competitors:
-        all_apps.append({
-            "name":        c.get("name", ""),
-            "url":         c.get("url", ""),
-            "domain":      c.get("domain", ""),
-            "content":     c.get("snippet", "")[:300],
-            "mrr":         c.get("pricing_hint", ""),
-            "votes":       "0",
-            "category":    state["user_category"],
-            "source":      "tavily_web",
-            "pricing_hint": c.get("pricing_hint", "bilinmiyor"),
-        })
+    all_apps = [
+        {
+            "name":         d["metadata"].get("name", ""),
+            "url":          d["metadata"].get("url", ""),
+            "domain":       "",
+            "content":      d["content"][:300],
+            "mrr":          d["metadata"].get("mrr", ""),
+            "votes":        d["metadata"].get("votes", "0"),
+            "category":     category,
+            "source":       d["metadata"].get("source", ""),
+            "pricing_hint": d["metadata"].get("pricing", "bilinmiyor"),
+        }
+        for d in docs
+    ]
+
+    # Yeterli sonuç yoksa Tavily tabanlı competitor_research ile tamamla
+    if len(all_apps) < 5:
+        try:
+            from scrapers.competitor_research import find_competitors
+            extras = find_competitors(category=category, niche=category, min_results=5)
+            for c in extras:
+                all_apps.append({
+                    "name":         c.get("name", ""),
+                    "url":          c.get("url", ""),
+                    "domain":       c.get("domain", ""),
+                    "content":      c.get("snippet", "")[:300],
+                    "mrr":          c.get("pricing_hint", ""),
+                    "votes":        "0",
+                    "category":     category,
+                    "source":       "tavily_web",
+                    "pricing_hint": c.get("pricing_hint", "bilinmiyor"),
+                })
+        except Exception as e:
+            print(f"[Agent] ⚠️  Rakip fallback hatası: {e}")
 
     print(f"[Agent] ✅ {len(all_apps)} rakip/uygulama bulundu.")
 
@@ -417,126 +409,88 @@ YALNIZCA TÜRKÇE olarak, sadece 3 maddelik özeti yaz."""
     else:
         complaints_summary = "Rakip şikayet verisi bulunamadı — piyasadaki araçların genel boşluklarını analiz et."
 
-    prompt3 = f"""Seçilen B2B/Painkiller fikri:
-{selected_idea}
+    # Kaynak listesini JSON array olarak hazırla
+    sources_json = json.dumps([
+        {"url": s.split(": ", 1)[-1].strip(), "title": s.split(":")[0].strip()}
+        for s in cited_sources_block.splitlines()
+        if "http" in s
+    ][:10])
 
-Fikirler:
-{ideas_raw}
+    prompt3 = f"""Seçilen fikir: {selected_idea}
+Veri kaynakları: {data_context}
+Rakip eksiklikleri: {complaints_summary}
 
-Veri Kaynakları:
-{data_context}
+KURALLAR:
+- Uydurma yapma. Güvenilir kaynağı olmayan sayısal iddia için null yaz.
+- TAM/SAM/SOM: formül + varsayım zorunlu, yoksa null.
+- Tech stack: spesifik model adı + birim maliyet zorunlu.
+- Dil: Türkçe. Emoji/ünlem yok. Pazarlama dili yok.
 
-Rakip Eksiklikleri (Özet):
-{complaints_summary}
-
-════════════════════════════════════════
-ZORUNLU KURALLAR — BUNLARA UYMAZSAN RAPOR GEÇERSİZ SAYILIR:
-
-1. KAYNAK ZORUNLULUĞU
-   - Veri kaynakları bölümünde listelenen URL'lerden birini kullandığında parantez içinde yaz: (Kaynak: https://...)
-   - Listede olmayan bir URL uydurmak KESİNLİKLE YASAK.
-   - Eğer bir iddianın kaynağı yoksa: "(Kaynak: doğrulanamadı)" yaz ve iddiayı tahmin olarak çerçevele.
-
-2. TEKNOLOJİ STACK — SOYUT İFADE YASAK
-   - "AI modeli kullanılacak" yazmak yasak.
-   - Her teknoloji için spesifik isim + yaklaşık birim maliyet zorunlu.
-   - Örnek format: "OpenAI Whisper API (~$0.006/dk) + GPT-4o-mini (~$0.15/1M token)"
-   - Eğer kesin fiyat bilinmiyorsa: "yaklaşık $X (Kaynak: doğrulanamadı)" şeklinde yaz.
-
-3. TAM/SAM/SOM — HALÜSİNASYON YASAK
-   - Pazar büyüklüğü rakamı veriyorsan hesaplama formülünü göstermek zorundasın.
-   - Format: "TAM = [hedef kitle sayısı] kişi × [yıllık fiyat] = [toplam]"
-   - Formülün temelindeki varsayımı da belirt: "Dünya genelinde yaklaşık X [meslek] olduğu tahmin edilmektedir (Kaynak: doğrulanamadı)" gibi.
-   - Kaynaklı veri yoksa TAM/SAM/SOM rakamı vermek yerine şunu yaz: "Pazar büyüklüğü için güvenilir kaynak bulunamadı, tahmin verilmemiştir."
-
-4. DİL TUTARLILIĞI
-   - Yalnızca Türkçe yaz. İngilizce cümle, bölüm başlığı veya paragraf yasak.
-   - İngilizce terim kaçınılmazsa ilk kullanımda Türkçe karşılığını ver: "Willingness to Pay (ödeme isteği)"
-
-5. ÜSLUP
-   - Fikri onaylama, her iddiayı sorgula.
-   - "Bu harika bir fırsat" gibi pazarlama dili yasak.
-   - Deneyimli, saygılı, doğrudan — emoji veya ünlem işareti kullanma.
-════════════════════════════════════════
-
-Aşağıdaki başlıkları sırayla yaz:
-
-## Fikir
-
-[Tek cümle: kim için, ne yapıyor, hangi teknolojiyle (spesifik model adı zorunlu).]
-
----
-
-## Gerçekten Bir İhtiyaç Var mı?
-
-[Bu işi bugün manuel yapan insanlar gerçekten var mı? Kaç saat kaybediyorlar? Bu acı, aylık $X ödemeyi haklı kılar mı? Kanıtla ya da kanıtlanamıyorsa "doğrulanamadı" de. Kaynakları parantez içinde göster.]
-
----
-
-## Hedef Kitle ve Ödeme Kapasitesi
-
-[Spesifik niş, tahmini kitle büyüklüğü (formülle), bu kitlenin bugün benzer araçlara ne ödediği. Ödeme isteksizliği riski varsa belirt.]
-
----
-
-## Teknoloji Yığını ve Maliyet Yapısı
-
-[Kullanılacak her API/model: isim, birim maliyet, ne için kullanılacağı. Örnek: "OpenAI Whisper API (~$0.006/dk) — ses transkripsiyon için". Maliyet bilinmiyorsa "(Kaynak: doğrulanamadı)" ekle.]
-
----
-
-## Mevcut Rakiplerin Neden Yetersiz Kaldığı
-
-[Rakip eksiklikleri: {complaints_summary[:200]}
-
-Bu eksiklikler gerçek mi yoksa alışkanlık sorunu mu? Rakipler bu açığı neden kapatmadı? Kaynakları göster.]
-
----
-
-## Kritik Riskler
-
-[En az 3 somut risk. Her birini 1-2 cümleyle, net yaz.]
-
----
-
-## Geliştirme Süresi ve Teknik Gerçekçilik
-
-[MVP kaç hafta, hangi API'ler kullanılacak (spesifik), teknik zorluk 1-5 üzerinden ve neden.]
-
----
-
-## İlk Müşteriye Ulaşma Yolu
-
-[Reklam yok. Hangi topluluk veya kanal, neden orada? İlk 10 müşteri için somut adımlar.]
-
----
-
-## Fiyatlandırma Mantığı
-
-[Önerilen aylık ücret ve gerekçesi. TAM/SAM/SOM varsa formülle göster, yoksa "güvenilir kaynak bulunamadı" yaz.]
-
----
-
-## Sonuç
-
-[Nesnel değerlendirme: güçlü yanlar, zayıf yanlar. Hangi varsayımları doğrulamadan bu fikre zaman ayırmak hata olur?]
-
----
-
-Sadece raporu yaz. Emoji kullanma."""
+SADECE aşağıdaki JSON yapısında yanıt ver (başka hiçbir şey yazma):
+{{
+  "idea_title": "...",
+  "executive_summary": {{
+    "decision": "Go|Hold|No-Go",
+    "weighted_score": null,
+    "market_attractiveness": null,
+    "technical_barrier": null,
+    "unit_economics": null,
+    "gtm_ease": null,
+    "leap_of_faith": ["varsayım1", "varsayım2", "varsayım3"]
+  }},
+  "market": {{
+    "tam": null,
+    "tam_formula": null,
+    "sam": null,
+    "som": null,
+    "cagr": null,
+    "macro_signals": "..."
+  }},
+  "competition": {{
+    "competitors": [{{"name":"...", "url":"...", "weakness":"...", "funding":null}}],
+    "gap_summary": "...",
+    "entry_barriers": "..."
+  }},
+  "technical": {{
+    "stack": "...",
+    "cpu_cost": null,
+    "ltv": null,
+    "cac": null,
+    "pricing_model": "..."
+  }},
+  "validation": {{
+    "icp": "...",
+    "cold_email_sequence": ["adım1", "adım2", "adım3"],
+    "linkedin_dm": "...",
+    "waitlist_h1": "...",
+    "waitlist_h2": "...",
+    "value_prop": "..."
+  }},
+  "sources": {sources_json}
+}}"""
 
     try:
         llm_structured = ChatGroq(
             model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
-            temperature=0.4,
+            temperature=0.3,
         )
-        final = llm_structured.invoke([HumanMessage(content=prompt3)])
-        report = final.content
-    except Exception as e:
-        report = f"❌ LLM hatası: {e}\n\nFikirler:\n{ideas_raw}\n\nSeçim:\n{selected_idea}"
+        raw = llm_structured.invoke([HumanMessage(content=prompt3)]).content.strip()
+        start, end = raw.find("{"), raw.rfind("}") + 1
+        report_dict = json.loads(raw[start:end]) if start >= 0 else {}
 
-    print("[Agent] ✅ Rapor üretildi (3 aşamalı multi-shot).")
-    return {**state, "final_report": report}
+        # Pydantic ile doğrula
+        from lib.schemas import FeasibilityReport, report_to_markdown
+        report_obj = FeasibilityReport(**report_dict)
+        report = report_to_markdown(report_obj)
+        # Ham JSON'u da state'e ekle (UI ve Auditor için)
+        report_json = report_obj.model_dump()
+    except Exception as e:
+        print(f"[Agent] ⚠️  JSON parse/validate hatası: {e} — Markdown fallback.")
+        report = raw if "raw" in dir() else f"LLM hatası: {e}"
+        report_json = {}
+
+    print("[Agent] ✅ Rapor üretildi (6 bölümlü standart).")
+    return {**state, "final_report": report, "report_json": report_json}
 
 
 # ──────────────────────────────────────────────
@@ -679,49 +633,77 @@ Yorumlar:
 
 
 # ──────────────────────────────────────────────
-# GRAPH OLUŞTUR (Faz 3 — 8 node)
+# S3 NODE — Auditor (Tek aşamalı grafikte de kullanılıyor)
 # ──────────────────────────────────────────────
 
-def build_graph():
-    graph = StateGraph(AgentState)
+def auditor_node(state: AgentState) -> AgentState:
+    """Raporu okur, iddiaları doğrular, Güven Endeksi hesaplar."""
+    print("[Agent] Node Auditor → rapor denetleniyor")
+    report_json = state.get("report_json") or {}
+    if not report_json:
+        print("[Agent] ⚠️  report_json boş, auditor atlanıyor.")
+        return state
 
-    # Local imports to avoid circular import
+    from agent.auditor import run_audit
+    result = run_audit(report_json, report_id=state.get("user_category", "unknown"))
+
+    banner_map = {"green": "🟢", "yellow": "🟡", "red": "🔴"}
+    banner_emoji = banner_map.get(result["banner"], "⚪")
+    banner_line = (
+        f"{banner_emoji} **Güven Endeksi: {result['confidence_index']:.0%}** "
+        f"(Kaynak Kalitesi: {result['s_score']:.0%} | Çapraz Doğrulama: {result['x_score']:.0%})  \n"
+        f"*{result['unverified_count']}/{result['total_claims']} iddia doğrulanamadı.*\n\n---\n\n"
+    )
+    final_report = banner_line + state.get("final_report", "")
+
+    return {
+        **state,
+        "report_json": result["report_json"],
+        "final_report": final_report,
+    }
+
+
+# ──────────────────────────────────────────────
+# GRAPH OLUŞTUR (Faz 3 — Tek Aşamalı)
+# ──────────────────────────────────────────────
+# Faz A ve B graph'ları → agent/phase_agents.py
+
+def build_graph():
+    """Geriye dönük uyum — mevcut tek aşamalı akış."""
     from agent.competition_matrix import competition_matrix_node
     from agent.validator import validate_idea_node
 
-    # Faz 1 node'ları
-    graph.add_node("fetch_trending_models",     fetch_trending_models_node)
-    graph.add_node("match_to_market",           match_to_market_node)
-    # Faz 2 node'ları
-    graph.add_node("scrape_competitor_reviews",  scrape_competitor_reviews_node)
-    graph.add_node("cluster_complaints",         cluster_complaints_node)
-    # Faz 3 node'ları
-    graph.add_node("find_store_app",             find_store_app_node)
-    graph.add_node("scrape_store_reviews",       scrape_store_reviews_node)
-    graph.add_node("cluster_store_problems",     cluster_store_problems_node)
-    # Faz 9 node'ları
-    graph.add_node("competition_matrix",         competition_matrix_node)
-    graph.add_node("generate_opportunity",       generate_opportunity_node)
-    graph.add_node("validate_idea",              validate_idea_node)
+    graph = StateGraph(AgentState)
+    graph.add_node("fetch_trending_models",    fetch_trending_models_node)
+    graph.add_node("match_to_market",          match_to_market_node)
+    graph.add_node("scrape_competitor_reviews", scrape_competitor_reviews_node)
+    graph.add_node("cluster_complaints",        cluster_complaints_node)
+    graph.add_node("find_store_app",            find_store_app_node)
+    graph.add_node("scrape_store_reviews",      scrape_store_reviews_node)
+    graph.add_node("cluster_store_problems",    cluster_store_problems_node)
+    graph.add_node("competition_matrix",        competition_matrix_node)
+    graph.add_node("generate_opportunity",      generate_opportunity_node)
+    graph.add_node("validate_idea",             validate_idea_node)
+    graph.add_node("auditor",                   auditor_node)
 
     graph.set_entry_point("fetch_trending_models")
-    graph.add_edge("fetch_trending_models",     "match_to_market")
-    graph.add_edge("match_to_market",           "scrape_competitor_reviews")
-    graph.add_edge("scrape_competitor_reviews",  "cluster_complaints")
-    graph.add_edge("cluster_complaints",         "find_store_app")
-    graph.add_edge("find_store_app",             "scrape_store_reviews")
-    graph.add_edge("scrape_store_reviews",       "cluster_store_problems")
-    
-    # Yeni akış: cluster_store_problems -> competition_matrix -> generate_opportunity -> validate_idea -> END
-    graph.add_edge("cluster_store_problems",     "competition_matrix")
-    graph.add_edge("competition_matrix",         "generate_opportunity")
-    graph.add_edge("generate_opportunity",       "validate_idea")
-    graph.add_edge("validate_idea",              END)
+    graph.add_edge("fetch_trending_models",    "match_to_market")
+    graph.add_edge("match_to_market",          "scrape_competitor_reviews")
+    graph.add_edge("scrape_competitor_reviews", "cluster_complaints")
+    graph.add_edge("cluster_complaints",        "find_store_app")
+    graph.add_edge("find_store_app",            "scrape_store_reviews")
+    graph.add_edge("scrape_store_reviews",      "cluster_store_problems")
+    graph.add_edge("cluster_store_problems",    "competition_matrix")
+    graph.add_edge("competition_matrix",        "generate_opportunity")
+    graph.add_edge("generate_opportunity",      "validate_idea")
+    graph.add_edge("validate_idea",             "auditor")
+    graph.add_edge("auditor",                   END)
 
     return graph.compile()
 
 
-# Singleton — Streamlit'te her request'te yeniden build etme
+# Singleton — ana pipeline
+# Faz A/B singleton'ları için: agent/phase_agents.py
 idea_agent = build_graph()
 
 

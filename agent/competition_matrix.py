@@ -12,7 +12,7 @@ from typing import Any
 def competition_matrix_node(state: Any) -> Any:
     """Rakipleri karşılaştıran yapılandırılmış bir Markdown tablosu oluşturur."""
     print("[Agent] Node 8.5 → competition_matrix (V2)")
-    from agent.idea_agent import get_llm
+    from lib.llm import get_llm
 
     apps = state.get("matching_apps", [])
     if not apps:

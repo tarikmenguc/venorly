@@ -31,15 +31,18 @@ from langgraph.graph import StateGraph, END
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE_DIR)
 
-from agent.idea_agent import get_llm
+from lib.llm import get_llm
+from lib.research_steps import (
+    fetch_models_and_apps,
+    build_seo_text,
+    build_seo_memo_text,
+    build_brainstorm_prompt,
+    parse_angles,
+    run_web_research,
+    analyze_competitors,
+)
 from scrapers.reality_intel import check_upwork_rss, scan_reddit_desperation, scrape_github_gui_requests
 from agent.buyer_matcher import BuyerMatcherAgent
-
-try:
-    from langchain_community.tools.tavily_search import TavilySearchResults
-    tavily = TavilySearchResults(max_results=4)
-except Exception:
-    tavily = None
 
 
 # ──────────────────────────────────────────────
@@ -87,39 +90,9 @@ def research_agent_node(state: OrchestratorState) -> OrchestratorState:
     trending_models = []
     known_apps = []
 
-    # 1. Tavily ile AI modelleri + mevcut uygulamaları çek (ChromaDB yerine)
+    # 1. Tavily ile AI modelleri + mevcut uygulamaları çek
     try:
-        from tavily import TavilyClient
-        tavily_client = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
-
-        # Modelleri Çek
-        m_results = tavily_client.search(
-            f"trending AI models tools for {category} 2024 2025",
-            max_results=8, search_depth="basic"
-        )
-        for r in m_results.get("results", []):
-            trending_models.append({
-                "name": r.get("title", ""),
-                "description": r.get("content", "")[:300],
-                "category": category,
-                "source": "tavily_web",
-                "url": r.get("url", ""),
-            })
-
-        # App'leri Çek
-        a_results = tavily_client.search(
-            f"SaaS startups apps using {category} AI",
-            max_results=8, search_depth="basic"
-        )
-        for r in a_results.get("results", []):
-            known_apps.append({
-                "name": r.get("title", ""),
-                "description": r.get("content", "")[:300],
-                "category": category,
-                "source": "tavily_web",
-                "url": r.get("url", ""),
-            })
-
+        trending_models, known_apps = fetch_models_and_apps(category)
         log.append(f"  ✅ Tavily: {len(trending_models)} model, {len(known_apps)} app")
     except Exception as e:
         log.append(f"  ⚠️ Tavily web arama hatası: {e}")
@@ -195,94 +168,44 @@ def analyst_agent_node(state: OrchestratorState) -> OrchestratorState:
     # ─── Adım 1: Hipotez Üretimi ───
     models_text = ", ".join([m.get("name", "") for m in state["trending_models"][:5]])
     apps_text = ", ".join([a.get("name", "") for a in state["known_apps"][:5]])
-    research = state.get("research_summary", "")
+    auto_text = "\n".join([
+        f"- [{s.get('source')}] {s.get('title', '')[:100]}"
+        for s in state.get("automation_signals", [])[:8]
+    ])
+    gap_text = "\n".join([
+        f"- [{g.get('source')}] {g.get('title', '')[:100]}"
+        for g in state.get("product_gaps", [])[:6]
+    ])
+    seo_text = build_seo_text(state.get("seo_data", {}))
 
-    auto_signals = state.get("automation_signals", [])
-    auto_text = "\n".join([f"- [{s.get('source')}] {s.get('title', '')[:100]}" for s in auto_signals[:8]])
-
-    gap_signals = state.get("product_gaps", [])
-    gap_text = "\n".join([f"- [{g.get('source')}] {g.get('title', '')[:100]}" for g in gap_signals[:6]])
-
-    # SEO verisi
-    seo_data = state.get("seo_data", {})
-    seo_text = ""
-    if seo_data:
-        seo_lines = []
-        for kw, d in list(seo_data.items())[:3]:
-            direction_emoji = "↑" if d.get("trend_direction") == "rising" else ("↓" if d.get("trend_direction") == "declining" else "→")
-            seo_lines.append(
-                f'  • "{kw}" → İlgi: {d.get("interest_score", "?")} /100 '
-                f'({direction_emoji} {d.get("change_pct", "0%")})'
-            )
-            rising = d.get("related_rising", [])[:3]
-            if rising:
-                seo_lines.append(f'    Yükselen aramalar: {", ".join(rising)}')
-        seo_text = "\n📈 Google Trends / Arama Hacmi:\n" + "\n".join(seo_lines)
-
-    brainstorm_prompt = f"""KULLANICININ SEÇTİĞİ ANA KATEGORİ: {category}
-
-ARAŞTIRMA ÖZETİ: {research}
-
-AI Modelleri: {models_text or "Bu nişte kullanılabilecek top-tier AI modellerini düşün."}
-Mevcut Uygulamalar: {apps_text or "Bu piyasadaki mevcut yazılımların yetersizliğini hayal et."}
-{f'''
-OTOMASYON İSTİHBARATI (n8n/Zapier/Make.com Forumlarından):
-{auto_text}''' if auto_text else ''}
-{f'''
-PRODUCT HUNT BOŞLUK ANALİZİ (Mevcut Ürünlerin Zayıf Noktaları):
-{gap_text}''' if gap_text else ''}
-{seo_text if seo_text else ''}
-
-Sen Y Combinator'dan acımasız bir yatırımcısın. Görevin {category} odağında 3 farklı Micro-SaaS 'Saldırı Açısı' yazmak.
-
-KATI KURALLAR (Friction Economy):
-1. B2C yasak. Sadece Profesyoneller, Freelancer'lar, Ajanslar veya İçerik Üreticileri hedeflenmeli.
-2. "Vitamin" değil "Ağrı Kesici": Manuel 5-10 saat çalan angarya işi çözen AI otomasyonu.
-3. Her açı için mutlaka: kim ne kadar zaman kaybediyor ve biz bunu nasıl tek tıkla çözüyoruz?
-
-Format:
-    Açı 1: [Niş Hedef Kitle] - [Manuel Acı Noktası] - [AI Otomasyon Çözümü]
-    Açı 2: [Niş Hedef Kitle] - [Manuel Acı Noktası] - [AI Otomasyon Çözümü]
-    Açı 3: [Niş Hedef Kitle] - [Manuel Acı Noktası] - [AI Otomasyon Çözümü]"""
+    brainstorm_prompt = build_brainstorm_prompt(
+        category=category,
+        models_text=models_text,
+        apps_text=apps_text,
+        auto_text=auto_text,
+        gap_text=gap_text,
+        seo_text=seo_text,
+        research_summary=state.get("research_summary", ""),
+    )
 
     angles = []
     try:
         response = get_llm(temp=0.9).invoke([HumanMessage(content=brainstorm_prompt)]).content
-        for line in response.split('\n'):
-            stripped = line.strip()
-            if stripped.startswith('Açı '):
-                angles.append(stripped.split(':', 1)[1].strip() if ':' in stripped else stripped)
-        if len(angles) < 3:
-            angles = [response[:100], response[100:200], response[200:300]]
-        log.append(f"  ✅ 3 hipotez üretildi")
+        angles = parse_angles(response)
+        log.append("  ✅ 3 hipotez üretildi")
     except Exception as e:
         log.append(f"  ❌ Hipotez hatası: {e}")
         return {**state, "error": f"Brainstorm hatası: {e}", "agent_log": log}
 
     # ─── Adım 2: Web Araştırması ───
-    web_results = []
-    if tavily:
-        for i, angle in enumerate(angles[:3]):
-            try:
-                q1 = f"{angle[:60]} SaaS tools competitors"
-                q2 = f"{angle[:60]} software complaints issues"
-                res1 = tavily.invoke(q1)
-                res2 = tavily.invoke(q2)
-                web_results.append({"angle": angle, "competitor_data": res1, "complaint_data": res2})
-                log.append(f"  ✅ Açı {i+1} için web araştırması tamamlandı")
-            except Exception as e:
-                log.append(f"  ⚠️ Web araştırma hatası (Açı {i+1}): {e}")
+    web_results = run_web_research(angles)
+    for i in range(len(web_results)):
+        log.append(f"  ✅ Açı {i + 1} için web araştırması tamamlandı")
 
     # ─── Adım 3: Rakip Analizi ───
     competitor_insights = ""
     try:
-        raw_data = json.dumps(web_results)[:4000]
-        comp_prompt = f"""Aşağıdaki ham web arama sonuçlarını analiz et. Pazardaki mevcut rakipleri, fiyat aralıklarını ve kullanıcıların en çok şikayet ettiği zayıf yönleri özetle.
-        
-Ham Veri: {raw_data}
-
-Net ve anlaşılır bir rapor formatında ver."""
-        competitor_insights = get_llm(temp=0.1).invoke([HumanMessage(content=comp_prompt)]).content
+        competitor_insights = analyze_competitors(web_results)
         log.append("  ✅ Rakip analizi tamamlandı")
     except Exception as e:
         log.append(f"  ⚠️ Rakip analizi hatası: {e}")
@@ -314,18 +237,7 @@ Seçtiğin açıyı, nedenini ve Go-To-Market stratejini kısaca açıkla."""
     investment_memo = ""
     try:
         models = "\n".join([m.get("name", "") for m in state["trending_models"][:3]])
-        
-        # SEO verisi memo'ya ekle
-        seo_memo_text = ""
-        if seo_data:
-            seo_lines = []
-            for kw, d in list(seo_data.items())[:3]:
-                direction_emoji = "↑" if d.get("trend_direction") == "rising" else ("↓" if d.get("trend_direction") == "declining" else "→")
-                seo_lines.append(
-                    f'- "{kw}": İlgi {d.get("interest_score", "?")} /100, '
-                    f'{direction_emoji} {d.get("change_pct", "0%")}'
-                )
-            seo_memo_text = "\nGoogle Trends Verileri:\n" + "\n".join(seo_lines)
+        seo_memo_text = build_seo_memo_text(state.get("seo_data", {}))
 
         memo_prompt = f"""Profesyonel bir "Investment Memo" formatında Markdown raporu oluştur.
 
