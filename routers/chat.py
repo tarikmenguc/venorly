@@ -117,7 +117,7 @@ Mod: {scan_data.get('mode', 'Bilinmiyor') if scan_data else 'Bilinmiyor'}
                 messages.append(AIMessage(content=msg["content"]))
         messages.append(HumanMessage(content=req.message))
 
-        from agent.idea_agent import get_llm
+        from lib.llm import get_llm
         llm = get_llm(temp=0.6)
 
         def chat_stream():
