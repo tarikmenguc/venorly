@@ -28,6 +28,8 @@ st.set_page_config(
 # Session state init
 if "report_history" not in st.session_state:
     st.session_state.report_history = []
+if "phase_a_state" not in st.session_state:
+    st.session_state.phase_a_state = None   # İki aşamalı mod: Aşama A sonucu
 
 # ──────────────────────────────────────────────
 # CSS — PREMIUM UI
@@ -306,6 +308,37 @@ run_btn = st.button("🚀 Fırsat Bul", use_container_width=True)
 # AGENT ÇALIŞTIR
 # ──────────────────────────────────────────────
 
+# ── İki Aşamalı Mod: Aşama A bitti, alt-niş seçimi ──
+if st.session_state.phase_a_state:
+    pa = st.session_state.phase_a_state
+    st.markdown("---")
+    st.markdown("### 🔍 Pazar Taraması Tamamlandı")
+    st.markdown(pa.get("market_overview", ""))
+    st.markdown("**Bir alt-niş seçin ve Aşama B'yi başlatın:**")
+    options = pa.get("_sub_niche_options") or [pa.get("user_category", "")]
+    sub_niche_sel = st.radio("Alt-niş:", options, horizontal=True)
+    if st.button("▶️ Derin Analiz Başlat (Aşama B)"):
+        st.session_state.phase_a_state = None
+        st.session_state["_run_phase_b"] = {"state": pa, "sub_niche": sub_niche_sel}
+        st.rerun()
+
+if st.session_state.get("_run_phase_b"):
+    pb_args = st.session_state.pop("_run_phase_b")
+    st.markdown("---")
+    with st.spinner("🤖 Aşama B çalışıyor (derin fizibilite)..."):
+        from agent.phase_agents import phase_b_agent
+        pb_state = {**pb_args["state"], "sub_niche": pb_args["sub_niche"],
+                    "store_app_ids": [], "store_reviews": [], "store_clusters": "",
+                    "competition_matrix": "", "final_report": "", "validation_details": "",
+                    "market_sizing": {}, "unit_economics": {}, "gtm_assets": "", "report_json": {}}
+        pb_result = None
+        for event in phase_b_agent.stream(pb_state):
+            pb_result = list(event.values())[0]
+        if pb_result:
+            st.success("✅ Derin analiz tamamlandı!")
+            st.markdown("### 💡 Fizibilite Raporu")
+            st.markdown(pb_result.get("final_report", ""))
+
 if run_btn:
     if not has_data:
         st.error("❌ Önce `python run_all.py` çalıştır!")
@@ -346,36 +379,37 @@ if run_btn:
             if mode in ["🔥 Keşfet (Otomatik)", "🎯 Kategori Seç"]:
                 from agent.idea_agent import idea_agent
                 NODE_LABELS = {
-                    "fetch_trending_models": (12, "🔍 Trend modeller aranıyor..."),
-                    "match_to_market": (25, "🎯 Pazarla eşleştiriliyor..."),
-                    "scrape_competitor_reviews": (40, "❌ Rakip şikayetleri toplanıyor..."),
-                    "cluster_complaints": (50, "📊 Şikayetler kümeleniyor..."),
-                    "find_store_app": (60, "📱 Store uygulamaları aranıyor..."),
-                    "scrape_store_reviews": (70, "⭐ Kullanıcı yorumları çekiliyor..."),
-                    "cluster_store_problems": (75, "🔬 Kullanıcı acıları analiz ediliyor..."),
-                    "competition_matrix": (82, "🥊 Rekabet matrisi hazırlanıyor..."),
-                    "generate_opportunity": (88, "💡 Fırsat raporu üretiliyor (3 aşama)..."),
-                    "validate_idea": (95, "✅ Fikir doğrulanıyor ve skorlanıyor..."),
+                    "fetch_trending_models":   (10, "🔍 Trend modeller aranıyor..."),
+                    "match_to_market":         (22, "🎯 Pazarla eşleştiriliyor..."),
+                    "scrape_competitor_reviews":(36, "❌ Rakip şikayetleri toplanıyor..."),
+                    "cluster_complaints":       (48, "📊 Şikayetler kümeleniyor..."),
+                    "find_store_app":           (57, "📱 Store uygulamaları aranıyor..."),
+                    "scrape_store_reviews":     (65, "⭐ Kullanıcı yorumları çekiliyor..."),
+                    "cluster_store_problems":   (72, "🔬 Kullanıcı acıları analiz ediliyor..."),
+                    "competition_matrix":       (80, "🥊 Rekabet matrisi hazırlanıyor..."),
+                    "generate_opportunity":     (88, "💡 Fırsat raporu üretiliyor..."),
+                    "validate_idea":            (93, "✅ Fikir doğrulanıyor ve skorlanıyor..."),
+                    "auditor":                  (97, "🔎 Güven Endeksi hesaplanıyor..."),
                 }
-                for event in idea_agent.stream({
+                _base_state = {
                     "user_category": category,
-                    "trending_models": [],
-                    "matching_apps":   [],
-                    "competitor_complaints": [],
-                    "complaint_clusters": "",
-                    "store_app_ids": [],
-                    "store_reviews": [],
-                    "store_clusters": "",
-                    "competition_matrix": "",
-                    "final_report":    "",
-                    "validation_details": "",
-                    "error":           None,
-                }):
+                    "trending_models": [], "matching_apps": [],
+                    "competitor_complaints": [], "complaint_clusters": "",
+                    "store_app_ids": [], "store_reviews": [], "store_clusters": "",
+                    "competition_matrix": "", "final_report": "",
+                    "validation_details": "", "seo_data": {},
+                    "market_overview": "", "sub_niche": "",
+                    "market_sizing": {}, "unit_economics": {}, "gtm_assets": "",
+                    "report_json": {}, "error": None,
+                }
+                for event in idea_agent.stream(_base_state):
                     node_name = list(event.keys())[0]
                     result = event[node_name]
                     pct, label = NODE_LABELS.get(node_name, (50, f"⚙️ {node_name}..."))
                     progress.progress(pct, text=label)
-            
+                    if node_name == "generate_market_overview":
+                        st.session_state.phase_a_state = result
+
             elif mode == "🔄 Rakip Analiz":
                 from agent.reverse_agent import reverse_agent
                 NODE_LABELS = {
@@ -473,6 +507,37 @@ if run_btn:
             st.markdown("### 🥊 Rekabet Matrisi")
             st.markdown(result["competition_matrix"])
             export_text += "\n\n### 🥊 Rekabet Matrisi\n" + result["competition_matrix"]
+
+    # ── Güven Endeksi Rozeti ──
+    report_json = result.get("report_json") or {}
+    if report_json.get("confidence_index") is not None:
+        ci = report_json["confidence_index"]
+        s_score = report_json.get("s_score", 0)
+        x_score = report_json.get("x_score", 0)
+        banner = report_json.get("banner", "red")
+        color_map = {"green": "#22c55e", "yellow": "#f59e0b", "red": "#ef4444"}
+        color = color_map.get(banner, "#94a3b8")
+        st.markdown(
+            f'<div style="border:1px solid {color};border-radius:8px;padding:12px 16px;margin:12px 0;">'
+            f'<span style="color:{color};font-weight:700;font-size:1.1rem;">Güven Endeksi: {ci:.0%}</span>'
+            f'&nbsp;&nbsp;<span style="color:#94a3b8;font-size:0.85rem;">'
+            f'Kaynak Kalitesi: {s_score:.0%} | Çapraz Doğrulama: {x_score:.0%}</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── Kaynakça Paneli ──
+    sources = (report_json.get("sources") or []) + [
+        {"url": m.get("url",""), "title": m.get("name","Kaynak")}
+        for m in result.get("trending_models",[])[:3] if m.get("url","").startswith("http")
+    ]
+    if sources:
+        with st.expander("📚 Kaynakça"):
+            for src in sources:
+                url   = src.get("url") or src.get("link","")
+                title = src.get("title") or url
+                if url:
+                    st.markdown(f"- [{title}]({url})")
 
     # Markdown export butonu
     if result.get("validation_details") and mode != "🧠 Derin Analiz":
