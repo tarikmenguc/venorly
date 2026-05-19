@@ -30,17 +30,15 @@ def run(cmd: list[str], label: str):
 
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "all"
-    python = sys.executable
+    from lib.pipeline_config import PIPELINE_SCRAPERS, PIPELINE_INGEST, get_python_executable
+    python = get_python_executable()
 
     steps_scrapers = [
-        ([python, "scrapers/huggingface.py"],  "HuggingFace Trending Modeller"),
-        ([python, "scrapers/replicate.py"],    "Replicate Modeller"),
-        ([python, "scrapers/fal.py"],          "fal.ai Modeller"),
-        ([python, "scrapers/trustmrr.py"],     "TrustMRR Uygulamaları"),
-        ([python, "scrapers/producthunt.py"],  "ProductHunt Uygulamaları"),
+        ([python, step["script"]], step["label"])
+        for step in PIPELINE_SCRAPERS
     ]
 
-    step_ingest = ([python, "ingestion/ingest.py"], "ChromaDB Ingestion")
+    step_ingest = ([python, PIPELINE_INGEST["script"]], PIPELINE_INGEST["label"])
 
     print("\n🚀 Startup Idea Finder — Pipeline Başlıyor")
     print(f"   Mod: {mode}")
@@ -65,8 +63,8 @@ def main():
     print(f"{'='*55}")
 
     if success_count == total:
-        print("\n✅ Hazır! UI'ı başlatmak için:")
-        print("   streamlit run app.py\n")
+        print("\n✅ Hazır! Projeyi başlatmak için docker-compose kullanabilirsiniz:")
+        print("   docker compose up -d\n")
     else:
         print("\n⚠️  Bazı adımlar başarısız oldu. Hata mesajlarını incele.\n")
 

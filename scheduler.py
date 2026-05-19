@@ -18,13 +18,10 @@ from datetime import datetime
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-import platform
-if platform.system() == "Windows":
-    PYTHON = os.path.join(BASE_DIR, "venv", "Scripts", "python.exe")
-else:
-    PYTHON = os.path.join(BASE_DIR, "venv", "bin", "python")
-if not os.path.exists(PYTHON):
-    PYTHON = sys.executable
+sys.path.insert(0, BASE_DIR)
+from lib.pipeline_config import PIPELINE_SCRAPERS, PIPELINE_INGEST, get_python_executable
+
+PYTHON = get_python_executable()
 
 LOG_FILE = os.path.join(BASE_DIR, "data", "scheduler.log")
 
@@ -71,16 +68,15 @@ def run_pipeline():
     log("PIPELINE BAŞLADI")
     log("=" * 50)
 
-    steps = [
-        ("scrapers/huggingface.py",  "HuggingFace Scraper"),
-        ("scrapers/replicate.py",    "Replicate Scraper"),
-        ("scrapers/fal.py",          "fal.ai Scraper"),
-        ("scrapers/api_pricing.py",  "API Pricing Scraper"),
-        # TrustMRR ve ProductHunt daha yavaş, haftada bir yeter
-        # ("scrapers/trustmrr.py",   "TrustMRR Scraper"),
-        # ("scrapers/producthunt.py","ProductHunt Scraper"),
-        ("ingestion/ingest.py",      "ChromaDB Ingestion"),
-    ]
+    steps = []
+    import datetime as dt
+    today = dt.datetime.today().weekday()  # Monday is 0, Sunday is 6
+
+    for step in PIPELINE_SCRAPERS:
+        if step["frequency"] == "daily" or (step["frequency"] == "weekly" and today == 0):
+            steps.append((step["script"], step["label"]))
+
+    steps.append((PIPELINE_INGEST["script"], PIPELINE_INGEST["label"]))
 
     results = {}
     for script, label in steps:
