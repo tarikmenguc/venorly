@@ -40,11 +40,13 @@ from routers.scan import router as scan_router
 from routers.chat import router as chat_router
 from routers.gallery import router as gallery_router
 from routers.extension import router as extension_router
+from routers.webhooks import router as webhooks_router
 
 app.include_router(scan_router)
 app.include_router(chat_router)
 app.include_router(gallery_router)
 app.include_router(extension_router)
+app.include_router(webhooks_router)
 
 # ── Utility Endpoints ────────────────────────────────
 

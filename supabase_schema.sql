@@ -1,3 +1,19 @@
+-- Users (B2B SaaS Abonelik ve Kredi Takibi)
+CREATE TABLE users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    clerk_id TEXT UNIQUE NOT NULL,
+    stripe_customer_id TEXT UNIQUE,
+    email TEXT NOT NULL,
+    plan_type TEXT DEFAULT 'free',
+    credits INT DEFAULT 5,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Enable read access for all users" ON users FOR SELECT USING (true);
+CREATE POLICY "Enable insert access for all users" ON users FOR INSERT WITH CHECK (true);
+CREATE POLICY "Enable update access for all users" ON users FOR UPDATE USING (true);
+
 -- Scans (Taramalar)
 CREATE TABLE scans (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
