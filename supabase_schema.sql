@@ -111,3 +111,47 @@ CREATE POLICY "Enable update access for all users" ON alerts FOR UPDATE USING (t
 CREATE POLICY "Enable delete access for all users" ON alerts FOR DELETE USING (true);
 
 CREATE INDEX IF NOT EXISTS idx_alerts_active ON alerts (is_active, frequency) WHERE is_active = true;
+
+-- ============================================================
+-- API PRICING (Birim Maliyet Veritabanı — S1)
+-- AI sağlayıcılarının güncel fiyat snapshot'ları.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS api_pricing (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    provider    TEXT NOT NULL,
+    model       TEXT NOT NULL,
+    unit        TEXT,
+    price_usd   TEXT,
+    note        TEXT,
+    scraped_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_pricing_provider ON api_pricing (provider, model, scraped_at DESC);
+
+ALTER TABLE api_pricing ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Enable read access for all users"   ON api_pricing FOR SELECT USING (true);
+CREATE POLICY "Enable insert access for all users" ON api_pricing FOR INSERT WITH CHECK (true);
+
+-- ============================================================
+-- AUDIT TRAIL (Güven Endeksi Denetim Kaydı — S1/S5)
+-- Her rapordaki iddiaların kaynak eşleştirme sonuçları.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS audit_trail (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    report_id       TEXT NOT NULL,
+    claim_text      TEXT NOT NULL,
+    claim_class     TEXT,          -- 'critical' | 'material' | 'descriptive'
+    source_url      TEXT,
+    verified        BOOLEAN DEFAULT false,
+    confidence      FLOAT,
+    unknown_category TEXT,         -- fallback durumunda kategori logu
+    created_at      TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_trail_report ON audit_trail (report_id);
+
+ALTER TABLE audit_trail ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Enable read access for all users"   ON audit_trail FOR SELECT USING (true);
+CREATE POLICY "Enable insert access for all users" ON audit_trail FOR INSERT WITH CHECK (true);
