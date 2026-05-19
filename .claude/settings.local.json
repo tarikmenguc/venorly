@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git commit -m ' *)",
+      "Bash(Remove-Item -Force \"C:/Users/tarik/Desktop/Startup_Idea_Finder/.git/index.lock\")",
+      "Bash(rm C:/Users/tarik/Desktop/Startup_Idea_Finder/.git/HEAD.lock && echo \"Silindi\")",
+      "Bash(git add *)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\tarik\\Desktop\\Startup_Idea_Finder\\.git"
+    ]
+  }
+}
