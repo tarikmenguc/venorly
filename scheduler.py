@@ -75,6 +75,7 @@ def run_pipeline():
         ("scrapers/huggingface.py",  "HuggingFace Scraper"),
         ("scrapers/replicate.py",    "Replicate Scraper"),
         ("scrapers/fal.py",          "fal.ai Scraper"),
+        ("scrapers/api_pricing.py",  "API Pricing Scraper"),
         # TrustMRR ve ProductHunt daha yavaş, haftada bir yeter
         # ("scrapers/trustmrr.py",   "TrustMRR Scraper"),
         # ("scrapers/producthunt.py","ProductHunt Scraper"),
@@ -191,7 +192,7 @@ def run_scheduled(schedule_time: str = "06:00"):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Startup Idea Finder — Scheduler")
     parser.add_argument("--now", action="store_true", help="Hemen bir kere çalıştır")
-    parser.add_argument("--time", default="06:00", help="Günlük çalışma saati (default: 06:00)")
+    parser.add_argument("--time", default="03:00", help="Günlük çalışma saati (default: 03:00)")
     args = parser.parse_args()
 
     if args.now:

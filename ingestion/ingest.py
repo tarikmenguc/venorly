@@ -1,7 +1,7 @@
 """
 ChromaDB Ingestion Pipeline
 JSON dosyalarını okur → Document'lara dönüştürür → ChromaDB'ye yükler.
-İki koleksiyon: "ai_models" ve "startup_apps"
+Üç koleksiyon: "ai_models", "startup_apps", "competitor_reviews"
 """
 
 import json
@@ -17,8 +17,9 @@ sys.path.insert(0, BASE_DIR)
 CHROMA_DIR = os.path.join(BASE_DIR, "chroma_db")
 DATA_DIR   = os.path.join(BASE_DIR, "data")
 
-MODELS_FILE = os.path.join(DATA_DIR, "models_raw.json")
-APPS_FILE   = os.path.join(DATA_DIR, "apps_raw.json")
+MODELS_FILE   = os.path.join(DATA_DIR, "models_raw.json")
+APPS_FILE     = os.path.join(DATA_DIR, "apps_raw.json")
+REVIEWS_FILE  = os.path.join(DATA_DIR, "competitor_reviews.json")
 
 # Merkezî embedding modülünü kullan (Gemini Embedding 2)
 from lib.embeddings import get_embeddings
@@ -142,6 +143,53 @@ def ingest_apps(embeddings) -> int:
 
 
 # ──────────────────────────────────────────────
+# COMPETITOR REVIEWS KOLEKSİYONU
+# ──────────────────────────────────────────────
+
+def build_review_documents(reviews: list[dict]) -> list[Document]:
+    docs = []
+    for r in reviews:
+        product  = r.get("product", "")
+        rating   = r.get("rating", "")
+        text     = r.get("text") or r.get("review", "")
+        source   = r.get("source", "g2")
+
+        page_content = f"{product}. Rating: {rating}. {text}".strip()
+
+        metadata = {
+            "product":     product,
+            "rating":      str(rating),
+            "source":      source,
+            "url":         r.get("url", ""),
+            "scraped_at":  r.get("scraped_at", ""),
+            "helpful_count": str(r.get("helpful_count", 0)),
+        }
+        docs.append(Document(page_content=page_content, metadata=metadata))
+    return docs
+
+
+def ingest_reviews(embeddings) -> int:
+    reviews = load_json(REVIEWS_FILE)
+    if not reviews:
+        print("[Ingestion] competitor_reviews: veri yok, atlanıyor.")
+        return 0
+
+    docs = build_review_documents(reviews)
+    store = Chroma(
+        collection_name="competitor_reviews",
+        embedding_function=embeddings,
+        persist_directory=CHROMA_DIR,
+    )
+    existing = store.get()
+    if existing["ids"]:
+        store.delete(ids=existing["ids"])
+
+    store.add_documents(docs)
+    print(f"[Ingestion] ✅ competitor_reviews: {len(docs)} belge eklendi.")
+    return len(docs)
+
+
+# ──────────────────────────────────────────────
 # ANA PIPELINE
 # ──────────────────────────────────────────────
 
@@ -153,11 +201,12 @@ def run():
     os.makedirs(CHROMA_DIR, exist_ok=True)
     embeddings = get_embeddings()
 
-    n_models = ingest_models(embeddings)
-    n_apps   = ingest_apps(embeddings)
+    n_models  = ingest_models(embeddings)
+    n_apps    = ingest_apps(embeddings)
+    n_reviews = ingest_reviews(embeddings)
 
     print("=" * 55)
-    print(f"  Tamamlandı: {n_models} model | {n_apps} uygulama")
+    print(f"  Tamamlandı: {n_models} model | {n_apps} uygulama | {n_reviews} yorum")
     print(f"  ChromaDB: {CHROMA_DIR}")
     print("=" * 55)
 

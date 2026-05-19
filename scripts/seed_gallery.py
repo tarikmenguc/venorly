@@ -306,7 +306,7 @@ def run_seed(categories: list, dry_run: bool = False):
             dry_run = True
 
     # LLM
-    from agent.idea_agent import get_llm
+    from lib.llm import get_llm
     llm = get_llm(temp=0.3)
 
     results = {}
