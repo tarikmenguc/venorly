@@ -13,8 +13,8 @@ from datetime import datetime
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
-    from langchain_community.tools.tavily_search import TavilySearchResults
-    tavily = TavilySearchResults(max_results=5)
+    from lib.tavily_client import get_tavily_client as _get_tavily
+    tavily = _get_tavily()
 except Exception:
     tavily = None
 
@@ -54,7 +54,7 @@ def scrape_n8n_forum(query: str = "automate", limit: int = 15) -> List[Dict]:
 
     try:
         search_query = f"site:community.n8n.io {query} help OR automate OR workflow"
-        raw_results = tavily.invoke(search_query)
+        raw_results = tavily.search(search_query, max_results=5).get("results", [])
 
         for r in raw_results[:limit]:
             url = r.get("url", "")

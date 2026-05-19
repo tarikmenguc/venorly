@@ -163,13 +163,9 @@ def _fetch_via_tavily(keyword: str) -> Optional[dict]:
     try:
         from dotenv import load_dotenv
         load_dotenv()
-        from tavily import TavilyClient
+        from lib.tavily_client import get_tavily_client
 
-        tavily_key = os.getenv("TAVILY_API_KEY")
-        if not tavily_key:
-            return None
-
-        tavily = TavilyClient(api_key=tavily_key)
+        tavily = get_tavily_client()
 
         # Google Trends sayfasını veya ilgili analiz sitelerini ara
         results = tavily.search(
@@ -183,7 +179,7 @@ def _fetch_via_tavily(keyword: str) -> Optional[dict]:
         ])[:2000]
 
         # LLM ile veriyi yapılandır
-        from agent.idea_agent import get_llm
+        from lib.llm import get_llm
         from langchain_core.messages import HumanMessage
 
         llm = get_llm(temp=0.0)

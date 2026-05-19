@@ -12,8 +12,8 @@ from typing import List, Dict
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
-    from langchain_community.tools.tavily_search import TavilySearchResults
-    tavily = TavilySearchResults(max_results=5)
+    from lib.tavily_client import get_tavily_client as _get_tavily
+    tavily = _get_tavily()
 except Exception:
     tavily = None
 
@@ -67,7 +67,7 @@ def find_product_gaps(category: str, limit: int = 10) -> List[Dict]:
 
     for sq in search_queries:
         try:
-            raw = tavily.invoke(sq)
+            raw = tavily.search(sq, max_results=5).get("results", [])
             for r in raw[:limit]:
                 if not isinstance(r, dict):
                     continue

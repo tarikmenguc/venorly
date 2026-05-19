@@ -10,7 +10,7 @@ Rakip Araştırma Modülü — V4
 import os
 from urllib.parse import urlparse
 from dotenv import load_dotenv
-from tavily import TavilyClient
+from lib.tavily_client import get_tavily_client as _lib_get_tavily
 
 load_dotenv()
 
@@ -43,12 +43,12 @@ COMPLAINT_RETRY_QUERIES = [
 ]
 
 
-def _get_client() -> TavilyClient | None:
-    api_key = os.getenv("TAVILY_API_KEY", "")
-    if not api_key:
-        print("[CompetitorResearch] ⚠️  TAVILY_API_KEY bulunamadı!")
+def _get_client():
+    try:
+        return _lib_get_tavily()
+    except EnvironmentError as e:
+        print(f"[CompetitorResearch] ⚠️ {e}")
         return None
-    return TavilyClient(api_key=api_key)
 
 
 def _extract_domain(url: str) -> str:
