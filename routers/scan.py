@@ -61,7 +61,7 @@ async def scan_endpoint(
         client_ip = forwarded_for.split(",")[0]
 
     # Rate limit
-    if check_rate_limit(client_ip, req.mode):
+    if check_rate_limit(client_ip, req.mode, user_data=user):
         async def err_gen():
             yield f"data: {json.dumps({'error': _RATE_LIMIT_MSG})}\n\n"
         return StreamingResponse(err_gen(), media_type="text/event-stream")
