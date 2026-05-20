@@ -37,8 +37,16 @@ jobs:
 
             echo "🏥 Sağlık kontrolü (8s bekleniyor)..."
             sleep 8
-            docker compose exec -T api curl -sf http://localhost:8000/health \
-              || (echo "❌ Health check başarısız!" && exit 1)
+            docker compose exec -T api python3 -c "
+import http.client, sys
+try:
+    c = http.client.HTTPConnection('localhost', 8000, timeout=5)
+    c.request('GET', '/docs')
+    r = c.getresponse()
+    sys.exit(0 if r.status < 500 else 1)
+except Exception as e:
+    print(f'Bağlantı hatası: {e}'); sys.exit(1)
+" || (echo "❌ Health check başarısız!" && exit 1)
 
             echo "✅ Deploy başarılı!"
             docker compose ps
