@@ -8,3 +8,7 @@ CREATE TABLE usage_logs (
 
 -- Hızlı IP tabanlı sorgular için index
 CREATE INDEX idx_usage_logs_ip_date ON usage_logs(ip_address, created_at);
+
+ALTER TABLE usage_logs ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Enable insert access for all users" ON usage_logs FOR INSERT WITH CHECK (true);
+CREATE POLICY "Enable read access for all users" ON usage_logs FOR SELECT USING (true);

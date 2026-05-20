@@ -1,0 +1,54 @@
+# ============================================================
+# .dockerignore — Startup Idea Finder
+# COPY . . komutu bu dosyaları image'a almaz
+# ============================================================
+
+# Gizli — asla image'a girmesin
+.env
+.env.*
+!.env.example
+
+# Python sanal ortamı (300+ MB, gereksiz)
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Veri ve veritabanı dosyaları
+data/
+chroma_db/
+
+# Git
+.git/
+.gitignore
+
+# CI/CD
+.github/
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Frontend (kendi build context'i var)
+web/node_modules/
+web/.next/
+web/.env.local
+web/env.example
+
+# Dokümantasyon
+*.md
+docs/
+HOW_TO_BUILD.md
+PROJECT_PLAN.md
+README.md
+DEPLOYMENT_PLAN.md
+
+# Test / Geçici
+scratch*.py
+*.log

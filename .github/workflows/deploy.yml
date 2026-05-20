@@ -1,0 +1,41 @@
+name: Deploy to OVH VPS
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    name: SSH Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 🚀 Deploy to VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+
+            echo "📦 Güncel kodu çekiyorum..."
+            cd /home/ubuntu/venor-ai
+            git pull origin main
+
+            echo "🔨 İmajı build ediyorum (eski container çalışırken)..."
+            docker compose build api scheduler
+
+            echo "🔄 Container'ları güncelliyorum..."
+            docker compose up -d api scheduler
+
+            echo "🧹 Eski image'ları temizliyorum..."
+            docker image prune -f
+
+            echo "🏥 Sağlık kontrolü (5s bekleniyor)..."
+            sleep 5
+            curl -f http://localhost:8001/health \
+              || (echo "❌ Health check başarısız!" && exit 1)
+
+            echo "✅ Deploy başarılı!"
+            docker compose ps

@@ -17,7 +17,7 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8001:8000"   # Sadece localhost'a aç — Caddy buradan ulaşır, dış dünya göremez
     env_file:
       - .env
     volumes:
@@ -62,5 +62,4 @@ services:
       - api
     restart: unless-stopped
 
-volumes:
-  data:
+# volumes: data:  ← kaldırıldı; servisler ./data bind-mount kullanıyor, named volume kullanılmıyor
