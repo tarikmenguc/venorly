@@ -1,14 +1,10 @@
 # ============================================================
-# Startup Idea Finder — Docker Compose
+# Venor AI — Docker Compose
 #
 # Kullanım:
-#   cp .env.example .env          # .env dosyasını oluştur
-#   cp web/env.example web/.env.local
-#   docker compose up --build     # Servisleri başlat
-#   docker compose up -d          # Arka planda çalıştır
+#   cp .env.example .env
+#   docker compose up --build -d api scheduler
 # ============================================================
-
-version: '3.9'
 
 services:
   # ---- Backend (FastAPI) ----
@@ -16,18 +12,21 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    ports:
-      - "127.0.0.1:8001:8000"   # Sadece localhost'a aç — Caddy buradan ulaşır, dış dünya göremez
+    # Port binding yok — Caddy, chat-bot_default network üzerinden
+    # container adıyla (venor-ai-api-1:8000) doğrudan ulaşır
     env_file:
       - .env
     volumes:
-      - ./data:/app/data          # Persist scraper data & ChromaDB
+      - ./data:/app/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
       interval: 30s
       timeout: 10s
       retries: 3
+    networks:
+      - default
+      - caddy_network
 
   # ---- Scheduler (daily pipeline + alerts) ----
   scheduler:
@@ -42,24 +41,14 @@ services:
     depends_on:
       - api
     restart: unless-stopped
+    networks:
+      - default
 
-  # ---- Frontend (Next.js) ----
-  web:
-    build:
-      context: ./web
-      dockerfile: Dockerfile
-      args:
-        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
-        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
-        NEXT_PUBLIC_API_URL: http://api:8000
-        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
-        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
-    ports:
-      - "3000:3000"
-    env_file:
-      - web/.env.local
-    depends_on:
-      - api
-    restart: unless-stopped
+  # ---- Frontend (Next.js) — Vercel'de çalışıyor, burada kullanılmıyor ----
+  # web: ...
 
-# volumes: data:  ← kaldırıldı; servisler ./data bind-mount kullanıyor, named volume kullanılmıyor
+networks:
+  default:
+  caddy_network:
+    external: true
+    name: chat-bot_default

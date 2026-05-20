@@ -29,12 +29,15 @@ jobs:
             echo "🔄 Container'ları güncelliyorum..."
             docker compose up -d api scheduler
 
+            echo "🔗 API'nin Caddy ağına bağlı olduğunu doğruluyorum..."
+            docker network connect chat-bot_default venor-ai-api-1 2>/dev/null || true
+
             echo "🧹 Eski image'ları temizliyorum..."
             docker image prune -f
 
-            echo "🏥 Sağlık kontrolü (5s bekleniyor)..."
-            sleep 5
-            curl -f http://localhost:8001/health \
+            echo "🏥 Sağlık kontrolü (8s bekleniyor)..."
+            sleep 8
+            docker compose exec -T api curl -sf http://localhost:8000/health \
               || (echo "❌ Health check başarısız!" && exit 1)
 
             echo "✅ Deploy başarılı!"
