@@ -53,6 +53,7 @@ class AgentState(TypedDict):
     unit_economics: dict             # compute_unit_economics_node çıktısı
     gtm_assets: str                  # generate_gtm_assets_node çıktısı
     report_json: dict                # generate_opportunity_node — ham JSON (Auditor için)
+    market_data: str                 # fetch_market_data_node çıktısı: TAM/pazar büyüklüğü metinleri
     error: Optional[str]
 
 
@@ -113,6 +114,62 @@ Rules:
         }
 
     return {**state, "target_category": refined, "search_queries": search_queries}
+
+
+# ──────────────────────────────────────────────
+# NODE 0.5: Pazar Büyüklüğü Verisi Çek
+# ──────────────────────────────────────────────
+
+def fetch_market_data_node(state: AgentState) -> AgentState:
+    """
+    search_queries["market"] sorgusunu kullanarak TAM/pazar büyüklüğü
+    verisi çeker. Bulunan metinler generate_opportunity_node'a aktarılır.
+    """
+    market_query = state.get("search_queries", {}).get("market") or \
+                   f"{state['user_category']} market size TAM billion 2024"
+    print(f"[Agent] Node 0.5 → fetch_market_data | sorgu: '{market_query}'")
+
+    try:
+        from lib.tavily_client import get_tavily_client
+        client = get_tavily_client()
+
+        # İki farklı açıdan ara: genel pazar ve rakip gelir verileri
+        results_market = client.search(
+            market_query,
+            max_results=5,
+            search_depth="advanced",
+            include_domains=["statista.com", "grandviewresearch.com", "mordorintelligence.com",
+                             "marketsandmarkets.com", "ibisworld.com", "fortune business insights",
+                             "precedenceresearch.com", "businessresearchinsights.com",
+                             "globenewswire.com", "prnewswire.com", "bloomberg.com",
+                             "techcrunch.com", "crunchbase.com"],
+        )
+        snippets = [
+            f"[{r.get('title', '')}] {r.get('content', '')[:400]} (Kaynak: {r.get('url', '')})"
+            for r in results_market.get("results", [])
+            if r.get("content")
+        ]
+
+        # Yedek: domain kısıtlaması olmadan geniş arama
+        if len(snippets) < 2:
+            results_broad = client.search(
+                f"{state.get('target_category', state['user_category'])} industry market size revenue statistics",
+                max_results=5,
+                search_depth="advanced",
+            )
+            snippets += [
+                f"[{r.get('title', '')}] {r.get('content', '')[:400]} (Kaynak: {r.get('url', '')})"
+                for r in results_broad.get("results", [])
+                if r.get("content")
+            ]
+
+        market_data = "\n\n".join(snippets[:6]) if snippets else ""
+        print(f"[Agent] ✅ {len(snippets)} pazar verisi snippet'i bulundu.")
+    except Exception as e:
+        print(f"[Agent] ⚠️  Pazar verisi çekme hatası: {e}")
+        market_data = ""
+
+    return {**state, "market_data": market_data}
 
 
 # ──────────────────────────────────────────────
@@ -375,7 +432,12 @@ def generate_opportunity_node(state: AgentState) -> AgentState:
                 seo_lines.append(f'    Yükselen aramalar: {", ".join(rising)}')
         seo_text = "\nArama Hacmi Verileri:\n" + "\n".join(seo_lines)
 
-    data_context = f"""Kategori: {state['user_category']}
+    # Pazar büyüklüğü verisi
+    market_data = state.get("market_data", "")
+    market_data_block = f"\nPazar Büyüklüğü Araştırması (TAM/SAM için kullan):\n{market_data}\n" \
+                        if market_data else "\nPazar Büyüklüğü: Doğrulanmış veri bulunamadı.\n"
+
+    data_context = f"""Kategori: {state.get('target_category') or state['user_category']}
 Perspektif: {chosen_perspective}
 
 Trend AI Modelleri ve Kaynakları:
@@ -384,7 +446,7 @@ Trend AI Modelleri ve Kaynakları:
 Mevcut Uygulamalar ve Kaynakları:
 {apps_text}
 {all_complaints}{seo_text}
-
+{market_data_block}
 {cited_sources_block}"""
 
     # ========================================
@@ -739,6 +801,7 @@ def build_graph():
 
     graph = StateGraph(AgentState)
     graph.add_node("expand_query",             expand_query_node)
+    graph.add_node("fetch_market_data",        fetch_market_data_node)
     graph.add_node("fetch_trending_models",    fetch_trending_models_node)
     graph.add_node("match_to_market",          match_to_market_node)
     graph.add_node("scrape_competitor_reviews", scrape_competitor_reviews_node)
@@ -752,7 +815,8 @@ def build_graph():
     graph.add_node("auditor",                   auditor_node)
 
     graph.set_entry_point("expand_query")
-    graph.add_edge("expand_query",             "fetch_trending_models")
+    graph.add_edge("expand_query",             "fetch_market_data")
+    graph.add_edge("fetch_market_data",        "fetch_trending_models")
     graph.add_edge("fetch_trending_models",    "match_to_market")
     graph.add_edge("match_to_market",          "scrape_competitor_reviews")
     graph.add_edge("scrape_competitor_reviews", "cluster_complaints")

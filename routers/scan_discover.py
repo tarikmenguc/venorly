@@ -48,6 +48,7 @@ def generate_discover_events(req):
         "competition_matrix": "",
         "final_report": "",
         "seo_data": {},
+        "market_data": "",
         "error": None,
     }
     for event in idea_agent.stream(initial_state):

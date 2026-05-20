@@ -85,7 +85,7 @@ def _tavily_search(query: str, k: int) -> list[dict]:
     try:
         from lib.tavily_client import get_tavily_client
         client = get_tavily_client()
-        results = client.search(query, max_results=k, search_depth="basic")
+        results = client.search(query, max_results=k, search_depth="advanced")
 
         return [
             {
