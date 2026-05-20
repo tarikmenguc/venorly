@@ -17,7 +17,7 @@ def test_api(mode, category):
     
     print(f"Connecting to {url} with mode: {mode}, category: {category}")
     print("-" * 50)
-    
+    #a
     try:
         # stream=True ile SSE cevabını satır satır okuruz
         with requests.post(url, json=payload, headers=headers, stream=True) as r:
