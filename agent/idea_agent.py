@@ -6,6 +6,8 @@ Faz 18: ChromaDB kaldırıldı — tüm vektör aramaları Tavily web aramasıyl
 
 import os
 import sys
+import json
+import random
 from typing import TypedDict, List, Optional
 
 from dotenv import load_dotenv
