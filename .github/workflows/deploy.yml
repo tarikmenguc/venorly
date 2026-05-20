@@ -35,18 +35,10 @@ jobs:
             echo "🧹 Eski image'ları temizliyorum..."
             docker image prune -f
 
-            echo "🏥 Sağlık kontrolü (8s bekleniyor)..."
-            sleep 8
-            docker compose exec -T api python3 -c "
-import http.client, sys
-try:
-    c = http.client.HTTPConnection('localhost', 8000, timeout=5)
-    c.request('GET', '/docs')
-    r = c.getresponse()
-    sys.exit(0 if r.status < 500 else 1)
-except Exception as e:
-    print(f'Bağlantı hatası: {e}'); sys.exit(1)
-" || (echo "❌ Health check başarısız!" && exit 1)
+            echo "🏥 Sağlık kontrolü (10s bekleniyor)..."
+            sleep 10
+            curl -sf --max-time 15 https://api.venorly.digital/docs > /dev/null \
+              || (echo "❌ Health check başarısız!" && exit 1)
 
             echo "✅ Deploy başarılı!"
             docker compose ps
