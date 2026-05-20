@@ -34,7 +34,8 @@ def generate_discover_events(req):
 
     initial_state = {
         "user_category": req.category,
-        "target_category": req.category,
+        "target_category": "",
+        "search_queries": {},
         "trending_models": [],
         "known_apps": [],
         "matching_apps": [],

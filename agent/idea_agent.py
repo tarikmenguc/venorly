@@ -33,6 +33,8 @@ from lib.llm import get_llm  # noqa: E402
 
 class AgentState(TypedDict):
     user_category: str               # "video generation", "image", vs.
+    target_category: str             # expand_query_node çıktısı: rafine kategori
+    search_queries: dict             # expand_query_node çıktısı: arama sorguları
     trending_models: List[dict]      # fetch_trending_models_node çıktısı
     matching_apps: List[dict]        # match_to_market_node çıktısı
     competitor_complaints: List[dict] # scrape_competitor_reviews_node çıktısı
@@ -55,12 +57,71 @@ class AgentState(TypedDict):
 
 
 # ──────────────────────────────────────────────
+# NODE 0: Query Expansion — Ham Girdiyi Araştırma Sorgularına Dönüştür
+# ──────────────────────────────────────────────
+
+def expand_query_node(state: AgentState) -> AgentState:
+    """
+    Kullanıcının kısa girdisini (ör. "video") araştırma için
+    spesifik sorgulara dönüştürür. Hiçbir yeni bağımlılık gerektirmez —
+    zaten mevcut olan Groq kullanılır.
+    """
+    raw = state["user_category"] or "AI SaaS tool"
+    print(f"[Agent] Node 0 → expand_query | ham girdi: '{raw}'")
+
+    prompt = f"""A user wants to research a startup idea in the "{raw}" space.
+
+Expand this into specific research queries. Return ONLY valid JSON:
+
+{{
+  "refined_category": "specific niche description in 5-8 words (English)",
+  "market_query": "search query to find TAM/market size data and industry reports",
+  "competitor_query": "search query to find SaaS tools and competitors in this niche",
+  "pain_point_query": "search query for Reddit/forums to find user complaints and pain points",
+  "tech_query": "search query for AI models and technology used in this niche"
+}}
+
+Rules:
+- Queries must be in English (for web search)
+- Be very specific — avoid generic terms, focus on the niche
+- Return ONLY the JSON object, no explanation"""
+
+    try:
+        response = get_llm(temp=0.1).invoke([HumanMessage(content=prompt)])
+        raw_content = response.content.strip()
+        start = raw_content.find("{")
+        end = raw_content.rfind("}") + 1
+        parsed = json.loads(raw_content[start:end]) if start >= 0 else {}
+
+        refined = parsed.get("refined_category") or raw
+        search_queries = {
+            "market":     parsed.get("market_query")     or f"{raw} market size TAM startup 2024",
+            "competitor": parsed.get("competitor_query") or f"{raw} SaaS tools competitors alternatives",
+            "pain_point": parsed.get("pain_point_query") or f"{raw} problems complaints reddit site:reddit.com",
+            "tech":       parsed.get("tech_query")       or f"AI {raw} model API technology",
+        }
+        print(f"[Agent] ✅ Query expansion tamamlandı: '{raw}' → '{refined}'")
+        print(f"[Agent]    Sorgular: {list(search_queries.values())}")
+    except Exception as e:
+        print(f"[Agent] ⚠️  Query expansion hatası: {e} — fallback sorgular kullanılıyor.")
+        refined = raw
+        search_queries = {
+            "market":     f"{raw} market size TAM startup industry report 2024",
+            "competitor": f"best {raw} SaaS tools software competitors",
+            "pain_point": f"{raw} tool problems issues reddit complaints",
+            "tech":       f"AI {raw} model API open source technology",
+        }
+
+    return {**state, "target_category": refined, "search_queries": search_queries}
+
+
+# ──────────────────────────────────────────────
 # NODE 1: Trend Modelleri Getir
 # ──────────────────────────────────────────────
 
 def fetch_trending_models_node(state: AgentState) -> AgentState:
     """ChromaDB'den önce arar; sonuç yetersizse Tavily'ye düşer."""
-    query = state["user_category"] or "trending AI model"
+    query = state.get("search_queries", {}).get("tech") or state["user_category"] or "trending AI model"
     print(f"[Agent] Node 1 → fetch_trending_models | query: '{query}'")
 
     from lib.retrieval import retrieve
@@ -92,11 +153,12 @@ def match_to_market_node(state: AgentState) -> AgentState:
     Önce ChromaDB startup_apps koleksiyonundan rakip uygulamaları çeker.
     Yetersiz sonuçta competitor_research (Tavily) fallback'e düşer.
     """
-    category = state["user_category"]
+    category = state.get("target_category") or state["user_category"]
+    competitor_query = state.get("search_queries", {}).get("competitor") or category
     print(f"[Agent] Node 2 → match_to_market | kategori: '{category}'")
 
     from lib.retrieval import retrieve
-    docs = retrieve(category, need="market_apps", category=category, k=8)
+    docs = retrieve(competitor_query, need="market_apps", category=category, k=8)
 
     all_apps = [
         {
@@ -117,7 +179,7 @@ def match_to_market_node(state: AgentState) -> AgentState:
     if len(all_apps) < 5:
         try:
             from scrapers.competitor_research import find_competitors
-            extras = find_competitors(category=category, niche=category, min_results=5)
+            extras = find_competitors(category=competitor_query, niche=category, min_results=5)
             for c in extras:
                 all_apps.append({
                     "name":         c.get("name", ""),
@@ -676,6 +738,7 @@ def build_graph():
     from agent.validator import validate_idea_node
 
     graph = StateGraph(AgentState)
+    graph.add_node("expand_query",             expand_query_node)
     graph.add_node("fetch_trending_models",    fetch_trending_models_node)
     graph.add_node("match_to_market",          match_to_market_node)
     graph.add_node("scrape_competitor_reviews", scrape_competitor_reviews_node)
@@ -688,7 +751,8 @@ def build_graph():
     graph.add_node("validate_idea",             validate_idea_node)
     graph.add_node("auditor",                   auditor_node)
 
-    graph.set_entry_point("fetch_trending_models")
+    graph.set_entry_point("expand_query")
+    graph.add_edge("expand_query",             "fetch_trending_models")
     graph.add_edge("fetch_trending_models",    "match_to_market")
     graph.add_edge("match_to_market",          "scrape_competitor_reviews")
     graph.add_edge("scrape_competitor_reviews", "cluster_complaints")
