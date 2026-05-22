@@ -374,16 +374,33 @@ def generate_opportunity_node(state: AgentState) -> AgentState:
         apps_text = "  (Uygulama verisi bulunamadı)"
 
     # Atıfta bulunulabilecek kaynaklar — LLM bunları doğrudan kullanacak
+    # Akademik / araştırma URL'leri hariç tut
+    SKIP_URL_PATTERNS = [
+        "arxiv.org", ".pdf", "iiit.ac.in", "cvit.iiit", "lilianweng.github.io",
+        "aethir.com/blog-posts", "xenonstack.com/blog", "ecosystem.aethir",
+        "cdn.iiit", "researchgate.net", "semanticscholar.org", "dl.acm.org",
+        "ieeexplore.ieee.org", "springer.com/article", "nature.com/articles",
+    ]
+
+    def is_valid_source_url(url: str) -> bool:
+        if not url or not url.startswith("http"):
+            return False
+        url_lower = url.lower()
+        return not any(p in url_lower for p in SKIP_URL_PATTERNS)
+
     source_pool = []
     for m in state.get("trending_models", [])[:5]:
-        if m.get("url") and m["url"].startswith("http"):
-            source_pool.append(f"  - {m['name']}: {m['url']}")
+        url = m.get("url", "")
+        if is_valid_source_url(url):
+            source_pool.append(f"  - {m['name']}: {url}")
     for a in state.get("matching_apps", [])[:5]:
-        if a.get("url") and a["url"].startswith("http"):
-            source_pool.append(f"  - {a['name']}: {a['url']}")
+        url = a.get("url", "")
+        if is_valid_source_url(url):
+            source_pool.append(f"  - {a['name']}: {url}")
     for c in state.get("competitor_complaints", [])[:3]:
-        if c.get("url") and c["url"].startswith("http"):
-            source_pool.append(f"  - {c.get('app','Kaynak')}: {c['url']}")
+        url = c.get("url", "")
+        if is_valid_source_url(url):
+            source_pool.append(f"  - {c.get('app','Kaynak')}: {url}")
     cited_sources_block = (
         "Araştırma sırasında bulunan kaynaklar (yalnızca bunları kullan, URL uydurmak yasak):\n"
         + "\n".join(source_pool)

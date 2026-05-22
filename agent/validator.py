@@ -162,23 +162,32 @@ _Bu puan kartı üretilen rapora dayalı ön değerlendirmedir. Piyasa doğrulam
 # C.2: TAM/SAM/SOM Pazar Büyüklüğü
 # ──────────────────────────────────────────────
 
-def estimate_market_size(idea_summary: str, target_audience: str, llm) -> str:
+def estimate_market_size(idea_summary: str, target_audience: str, llm, market_data: str = "") -> str:
     """
     Pazar büyüklüğü tahmini yapar.
     Kategori bazlı araştırma destekli TAM aralıkları ile LLM hallüsinasyonu önlenir.
     Markdown tablosu döner.
     """
 
+    market_context = ""
+    if market_data and market_data.strip():
+        market_context = f"""
+Pazar Araştırması Verileri (bu kaynaklardan TAM hesabı yap):
+{market_data[:1200]}
+
+"""
+
     prompt = f"""Aşağıdaki Micro-SaaS fikri için TAM/SAM/SOM tahminlerini yap.
 
 Fikir: {idea_summary}
 Hedef Kitle: {target_audience}
-
+{market_context}
 ZORUNLU KURALLAR:
 1. Her rakam için hesaplama formülünü göster: "X kişi × $Y/yıl = $Z"
 2. Formülün temelindeki varsayımı belirt (örn. "Dünya genelinde ~2M serbest fotoğrafçı olduğu tahmin edilmektedir").
-3. Güvenilir bir kaynak veya hesaplama yapamıyorsan ilgili alanı null bırak. Uydurma yapma.
-4. "Genel SaaS pazarı $X" gibi belirsiz referanslara dayanma — kendi sektöre özgü bottom-up hesapla.
+3. Yukarıda pazar araştırması verisi varsa onu kullan — gerçek rakamları tercih et.
+4. Eğer hiç güvenilir veri yoksa bottom-up hesap yap; tamamen imkânsızsa ilgili alanı null bırak.
+5. "Genel SaaS pazarı $X" gibi belirsiz referanslara dayanma — kendi sektöre özgü hesapla.
 
 SADECE aşağıdaki JSON formatında yanıt ver, başka hiçbir şey yazma:
 {{"tam": "$2.1B", "tam_formula": "~3M düğün fotoğrafçısı × $700/yıl = $2.1B", "tam_assumption": "Dünya genelinde ~3M düğün fotoğrafçısı olduğu tahmin edilmektedir", "sam": "$340M", "sam_formula": "TAM'ın ~%16'sı: dijital araç kullanan ABD+AB pazarı ~480K kişi × $700/yıl = $336M", "som": "$850K", "som_formula": "İlk yıl 1.500 müşteri × $49/ay × 12 = $882K", "confidence": "düşük"}}
@@ -212,9 +221,9 @@ tam/sam/som null olabilir. confidence: "yüksek" (kendi sektörüne özgü kanı
 
 | Metrik | Sonuç | Hesaplama Formülü | Varsayım |
 |--------|-------|-------------------|----------|
-| TAM (Toplam Adreslenebilir Pazar) | {data.get('tam', 'veri yok')} | {data.get('tam_formula', '-')} | {data.get('tam_assumption', '-')} |
-| SAM (Ulaşılabilir Pazar) | {data.get('sam', 'veri yok')} | {data.get('sam_formula', '-')} | — |
-| SOM (İlk Yıl Gerçekçi Hedef) | {data.get('som', 'veri yok')} | {data.get('som_formula', '-')} | — |
+| TAM (Toplam Adreslenebilir Pazar) | {data.get('tam') or 'veri yok'} | {data.get('tam_formula') or '-'} | {data.get('tam_assumption') or '-'} |
+| SAM (Ulaşılabilir Pazar) | {data.get('sam') or 'veri yok'} | {data.get('sam_formula') or '-'} | — |
+| SOM (İlk Yıl Gerçekçi Hedef) | {data.get('som') or 'veri yok'} | {data.get('som_formula') or '-'} | — |
 
 Güven düzeyi: **{confidence}** — {confidence_note}
 """
@@ -274,6 +283,17 @@ def check_startup_graveyard(idea_summary: str, llm) -> str:
         except Exception as e:
             print(f"[Validator] Graveyard sorgu hatası: {e}")
 
+    # Büyük şirket içeren sonuçları LLM'ye göndermeden önce filtrele
+    filtered_results = []
+    for r in all_results:
+        text = (r.get('title', '') + ' ' + r.get('content', '')).lower()
+        domain_lower = r.get('domain', '').lower()
+        if any(name in text or name in domain_lower for name in BIG_COMPANIES):
+            print(f"[Validator] 🚫 Büyük şirket filtrelendi: {r['title'][:60]}")
+        else:
+            filtered_results.append(r)
+    all_results = filtered_results
+
     if not all_results:
         return """
 
@@ -295,10 +315,11 @@ Sonuçlar:
 {results_text}
 
 GÖREV:
-1. Büyük teknoloji şirketlerini (OpenAI, Google, Meta, Microsoft vb.) ve onların ürünlerini tamamen yoksay — bunlar erken girişimciye örnek olmaz.
+1. Büyük teknoloji şirketlerini (OpenAI, Google, Meta, Microsoft, Sora, Gemini, Midjourney vb.) ve onların ürünlerini tamamen yoksay.
 2. Yalnızca küçük veya orta ölçekli, bağımsız kurucuların yürüttüğü girişimleri listele.
 3. Her biri için: ürün adı, tahmini kapanma yılı, kapanma sebebini 1 cümleyle Türkçe yaz.
 4. Bu örneklerden 1 somut, pratik ders çıkar.
+5. ÖNEMLI: Eğer arama sonuçlarında bir ürün için kapanma/başarısızlık kanıtı AÇIKÇA belirtilmiyorsa o ürünü listeye ekleme. Uydurma yapma.
 
 Eğer büyük şirketler dışında gerçekten benzer başarısız bir girişim YOKSA, sadece "YOK" yaz.
 
@@ -402,9 +423,10 @@ def validate_idea_node(state: Any) -> Any:
     print("[Validator]   📊 Scorecard hesaplanıyor...")
     scorecard = generate_idea_scorecard(report, llm)
 
-    # 4. TAM/SAM/SOM (C.2)
+    # 4. TAM/SAM/SOM (C.2) — market_data'yı da geçiriyoruz
     print("[Validator]   📈 Pazar büyüklüğü tahmin ediliyor...")
-    market_size_md = estimate_market_size(idea_summary, target_audience, llm)
+    market_data_ctx = state.get("market_data", "") or ""
+    market_size_md = estimate_market_size(idea_summary, target_audience, llm, market_data=market_data_ctx)
 
     # 5. Startup Mezarlığı (C.3)
     print("[Validator]   ⚰️ Startup mezarlığı kontrol ediliyor...")
