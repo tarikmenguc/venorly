@@ -234,7 +234,7 @@ Güven düzeyi: **{confidence}** — {confidence_note}
 # C.3: Startup Mezarlığı (Failure Check)
 # ──────────────────────────────────────────────
 
-def check_startup_graveyard(idea_summary: str, llm) -> str:
+def check_startup_graveyard(idea_summary: str, llm, user_category: str = "", target_category: str = "") -> str:
     """
     Küçük, erken aşama girişimlere odaklanarak benzer başarısız ürünleri arar.
     ProductHunt, Indie Hackers, HackerNews, BetaList öncelikli.
@@ -252,11 +252,12 @@ def check_startup_graveyard(idea_summary: str, llm) -> str:
     }
 
     # Çoklu sorgu stratejisi: küçük girişim odaklı, İngilizce
+    niche = target_category or user_category or idea_summary
     queries = [
-        f'small startup {idea_summary} failed shut down site:indiehackers.com OR site:news.ycombinator.com',
-        f'{idea_summary} product "we are shutting down" OR "shutting down" OR "failed to get traction" indie',
-        f'{idea_summary} SaaS startup failed "not enough customers" OR "runway" OR "couldn\'t find PMF" 2022 2023 2024',
-        f'site:producthunt.com {idea_summary} discontinued OR abandoned OR "no longer available"',
+        f'small startup {niche} failed shut down site:indiehackers.com OR site:news.ycombinator.com',
+        f'{niche} product "we are shutting down" OR "shutting down" OR "failed to get traction" indie',
+        f'{niche} SaaS startup failed "not enough customers" OR "runway" OR "couldn\'t find PMF" 2022 2023 2024',
+        f'site:producthunt.com {niche} discontinued OR abandoned OR "no longer available"',
     ]
 
     all_results = []
@@ -430,7 +431,11 @@ def validate_idea_node(state: Any) -> Any:
 
     # 5. Startup Mezarlığı (C.3)
     print("[Validator]   ⚰️ Startup mezarlığı kontrol ediliyor...")
-    graveyard_md = check_startup_graveyard(idea_summary, llm)
+    graveyard_md = check_startup_graveyard(
+        idea_summary, llm,
+        user_category=state.get("user_category", ""),
+        target_category=state.get("target_category", ""),
+    )
 
     # Tüm validation detaylarını birleştir
     competitor_note = f"{existing_competitors} rakip bulundu" if existing_competitors >= 0 else "rakip verisi alınamadı"
