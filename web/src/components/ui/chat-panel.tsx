@@ -296,7 +296,7 @@ export function ChatPanel({ scanId, reportContext, alwaysVisible = false }: Chat
           </div>
           <div className="flex justify-center mt-2">
             <span className="text-[10px] text-muted-foreground/50">
-              Powered by Startup Idea Finder AI
+              Powered by Venorly AI
             </span>
           </div>
         </div>
