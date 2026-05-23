@@ -54,6 +54,7 @@ class AgentState(TypedDict):
     report_json: dict                # generate_opportunity_node — ham JSON (Auditor için)
     market_data: str                 # fetch_market_data_node çıktısı: TAM/pazar büyüklüğü metinleri
     error: Optional[str]
+    trace: List[dict]         # debug: node-by-node execution log
 
 
 # ──────────────────────────────────────────────
@@ -112,7 +113,10 @@ Rules:
             "tech":       f"AI {raw} model API open source technology",
         }
 
-    return {**state, "target_category": refined, "search_queries": search_queries}
+    _t = state.get("trace", []) + [{"node": "expand_query",
+        "input": raw, "refined_category": refined,
+        "queries": list(search_queries.values())}]
+    return {**state, "target_category": refined, "search_queries": search_queries, "trace": _t}
 
 
 # ──────────────────────────────────────────────
@@ -168,7 +172,9 @@ def fetch_market_data_node(state: AgentState) -> AgentState:
         print(f"[Agent] ⚠️  Pazar verisi çekme hatası: {e}")
         market_data = ""
 
-    return {**state, "market_data": market_data}
+    _t = state.get("trace", []) + [{"node": "fetch_market_data",
+        "snippet_count": len(market_data.split("\n\n")) if market_data else 0}]
+    return {**state, "market_data": market_data, "trace": _t}
 
 
 # ──────────────────────────────────────────────
@@ -197,7 +203,10 @@ def fetch_trending_models_node(state: AgentState) -> AgentState:
     ]
 
     print(f"[Agent] ✅ {len(models)} model döndürüldü.")
-    return {**state, "trending_models": models, "error": None}
+    _t = state.get("trace", []) + [{"node": "fetch_trending_models",
+        "model_count": len(models),
+        "models": [m.get("name", m.get("title", "?")) for m in models[:8]]}]
+    return {**state, "trending_models": models, "error": None, "trace": _t}
 
 
 # ──────────────────────────────────────────────
@@ -263,7 +272,10 @@ def match_to_market_node(state: AgentState) -> AgentState:
     except Exception as e:
         print(f"[Agent] ⚠️  SEO verisi alınamadı (devam ediyor): {e}")
 
-    return {**state, "matching_apps": all_apps, "seo_data": seo_data}
+    _t = state.get("trace", []) + [{"node": "match_to_market",
+        "app_count": len(all_apps),
+        "apps": [a.get("name", a.get("title", "?")) for a in all_apps[:8]]}]
+    return {**state, "matching_apps": all_apps, "seo_data": seo_data, "trace": _t}
 
 
 # ──────────────────────────────────────────────
@@ -296,7 +308,9 @@ def scrape_competitor_reviews_node(state: AgentState) -> AgentState:
         complaints = []
 
     print(f"[Agent] ✅ {len(complaints)} şikayet/yorum bulundu.")
-    return {**state, "competitor_complaints": complaints}
+    _t = state.get("trace", []) + [{"node": "scrape_competitor_reviews",
+        "complaint_count": len(complaints)}]
+    return {**state, "competitor_complaints": complaints, "trace": _t}
 
 
 # ──────────────────────────────────────────────
@@ -343,7 +357,9 @@ Görevin:
         clusters = f"(Kümeleme yapılamadı: {e})"
 
     print("[Agent] ✅ Şikayetler kümelendi.")
-    return {**state, "complaint_clusters": clusters}
+    _t = state.get("trace", []) + [{"node": "cluster_complaints",
+        "preview": clusters[:300] if clusters else ""}]
+    return {**state, "complaint_clusters": clusters, "trace": _t}
 
 
 # ──────────────────────────────────────────────
@@ -619,7 +635,13 @@ SADECE aşağıdaki JSON yapısında yanıt ver (başka hiçbir şey yazma):
         report_json = {}
 
     print("[Agent] ✅ Rapor üretildi (6 bölümlü standart).")
-    return {**state, "final_report": report, "report_json": report_json}
+    _null = [k for k, v in report_json.items() if v is None] if report_json else ["tümü"]
+    _t = state.get("trace", []) + [{"node": "generate_opportunity",
+        "ideas_raw": ideas_raw[:600] if ideas_raw else "",
+        "selected_idea": selected_idea[:300] if selected_idea else "",
+        "json_valid": bool(report_json),
+        "null_fields": _null}]
+    return {**state, "final_report": report, "report_json": report_json, "trace": _t}
 
 
 # ──────────────────────────────────────────────
@@ -674,7 +696,9 @@ Rules:
     else:
         print("[Agent] ℹ️  Eşleşen startup'ların hiçbirinin Play Store uygulaması yok (web-only).")
 
-    return {**state, "store_app_ids": store_ids}
+    _t = state.get("trace", []) + [{"node": "find_store_app",
+        "app_count": len(store_ids)}]
+    return {**state, "store_app_ids": store_ids, "trace": _t}
 
 
 # ──────────────────────────────────────────────
@@ -716,7 +740,9 @@ def scrape_store_reviews_node(state: AgentState) -> AgentState:
 
     source = "Play Store" if store_ids else "Tavily web"
     print(f"[Agent] ✅ {len(all_reviews)} yorum toplandı ({source}).")
-    return {**state, "store_reviews": all_reviews}
+    _t = state.get("trace", []) + [{"node": "scrape_store_reviews",
+        "review_count": len(all_reviews)}]
+    return {**state, "store_reviews": all_reviews, "trace": _t}
 
 
 # ──────────────────────────────────────────────
@@ -758,7 +784,9 @@ Yorumlar:
         clusters = ""
 
     print("[Agent] ✅ Store yorumları kümelendi.")
-    return {**state, "store_clusters": clusters}
+    _t = state.get("trace", []) + [{"node": "cluster_store_problems",
+        "preview": clusters[:300] if clusters else ""}]
+    return {**state, "store_clusters": clusters, "trace": _t}
 
 
 # ──────────────────────────────────────────────
@@ -796,10 +824,18 @@ def auditor_node(state: AgentState) -> AgentState:
         final_report = final_report.replace("**Karar:** Go", "**Karar:** Hold")
         final_report = final_report.replace("**Karar:** ✅ Go", "**Karar:** ⚠️ Hold")
 
+    _t = state.get("trace", []) + [{"node": "auditor",
+        "claims_total": result.get("total_claims", 0),
+        "claims_verified": result.get("total_claims", 0) - result.get("unverified_count", 0),
+        "confidence_index": result.get("confidence_index", 0),
+        "banner": result.get("banner", ""),
+        "decision": (audited_json.get("executive_summary") or {}).get("decision", ""),
+        "decision_overridden": decision_overridden}]
     return {
         **state,
         "report_json": audited_json,
         "final_report": final_report,
+        "trace": _t,
     }
 
 

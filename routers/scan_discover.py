@@ -4,6 +4,8 @@ Tek aşamalı pazar keşfi (idea_agent) endpoint'leri.
 """
 
 import json
+import os
+from datetime import datetime
 from fastapi import APIRouter, Request, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -12,6 +14,22 @@ from lib.auth_middleware import verify_user_token
 from lib.scan_utils import SSE_HEADERS
 
 router = APIRouter()
+
+
+def _save_trace(category: str, trace: list) -> None:
+    """Scan trace'ini data/traces/ klasörüne JSON olarak yazar."""
+    try:
+        trace_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "traces")
+        os.makedirs(trace_dir, exist_ok=True)
+        slug = category[:40].replace(" ", "_").replace("/", "-")
+        ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        path = os.path.join(trace_dir, f"{ts}_{slug}.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"category": category, "timestamp": ts, "nodes": trace},
+                      f, ensure_ascii=False, indent=2)
+        print(f"[Trace] ✅ {path}")
+    except Exception as e:
+        print(f"[Trace] ⚠️  Trace yazılamadı: {e}")
 
 
 class StageARequest(BaseModel):
@@ -50,11 +68,20 @@ def generate_discover_events(req):
         "seo_data": {},
         "market_data": "",
         "error": None,
+        "trace": [],
     }
+    final_state = initial_state
     for event in idea_agent.stream(initial_state):
         node_name = list(event.keys())[0]
         result = event[node_name]
-        yield f"data: {json.dumps({'node': node_name, 'state': result})}\n\n"
+        final_state = result
+        # Trace'i SSE'ye dahil etme — dosyaya yaz, frontend'i şişirme
+        state_clean = {k: v for k, v in result.items() if k != "trace"}
+        yield f"data: {json.dumps({'node': node_name, 'state': state_clean})}\n\n"
+    # Trace'i dosyaya kaydet
+    trace = final_state.get("trace", [])
+    if trace:
+        _save_trace(req.category, trace)
 
 
 # ──────────────────────────────────────────────
