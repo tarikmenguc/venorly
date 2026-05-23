@@ -139,7 +139,7 @@ export default function DashboardPage() {
               <h1 className="text-3xl font-bold bg-gradient-to-r from-white to-white/60 bg-clip-text text-transparent">
                 Dashboard
               </h1>
-              <p className="text-muted-foreground mt-1">Startup Idea Finder — Genel bakış</p>
+              <p className="text-muted-foreground mt-1">Venorly — Genel bakış</p>
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -306,7 +306,7 @@ export default function DashboardPage() {
         {/* Footer */}
         <div className="text-center py-6">
           <p className="text-xs text-muted-foreground">
-            Startup Idea Finder V6 — Friction Economy Engine 🚀
+            Venorly
           </p>
         </div>
       </div>
