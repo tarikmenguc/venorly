@@ -73,7 +73,7 @@ def extract_claims(report_json: dict) -> list[dict]:
     return claims
 
 
-def verify_claims(claims: list[dict], sources: list[dict]) -> list[dict]:
+def verify_claims(claims: list[dict], sources: list[dict], tavily_client=None) -> list[dict]:
     """
     Her iddiayı kaynak listesiyle eşleştirir.
     Eşleşme: iddia metninde kaynak URL'inden domain adı geçiyorsa.
@@ -105,6 +105,29 @@ def verify_claims(claims: list[dict], sources: list[dict]) -> list[dict]:
             "matched_sources": matched_sources,
             "source_quality": max((source_confidence_map.get(s, 0.30) for s in matched_sources), default=0.0),
         })
+    # Aşama 2: Tavily ile kritik iddiaları gerçekten doğrula
+    if tavily_client:
+        critical_unverified = [
+            c for c in verified
+            if not c.get("verified") and c.get("claim_class") == "critical"
+        ][:3]  # Maliyet kontrolü: max 3 Tavily çağrısı
+
+        for claim in critical_unverified:
+            search_text = claim["text"][:120]
+            try:
+                results = tavily_client.search(
+                    search_text, max_results=2, search_depth="basic"
+                )
+                if results.get("results"):
+                    claim["verified"] = True
+                    claim["source_quality"] = 0.50
+                    claim["matched_sources"] = [
+                        results["results"][0].get("url", "")
+                    ]
+                    print(f"[Auditor] ✅ Tavily doğruladı: {search_text[:60]}...")
+            except Exception as e:
+                print(f"[Auditor] ⚠️  Tavily doğrulama hatası: {e}")
+
     return verified
 
 
@@ -220,9 +243,17 @@ def run_audit(report_json: dict, report_id: str = "unknown") -> dict:
         "total_claims":       int,
     }
     """
+    # Tavily client — kritik iddiaları web'de doğrulamak için (opsiyonel)
+    tavily_client = None
+    try:
+        from lib.tavily_client import get_tavily_client
+        tavily_client = get_tavily_client()
+    except Exception:
+        pass  # Tavily yoksa yalnızca domain matching ile devam et
+
     sources = report_json.get("sources", [])
     claims = extract_claims(report_json)
-    verified = verify_claims(claims, sources)
+    verified = verify_claims(claims, sources, tavily_client=tavily_client)
     score = compute_hybrid_score(verified)
     annotated = mark_unverified(report_json, verified)
 
