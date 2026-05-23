@@ -49,7 +49,7 @@ export default function SignInPage() {
             <Sparkles size={22} className="text-primary" />
           </div>
           <h1 className="text-2xl font-bold text-white">Hoş Geldin</h1>
-          <p className="text-muted-foreground text-sm mt-1">Startup Idea Finder'a giriş yap</p>
+          <p className="text-muted-foreground text-sm mt-1">Venorly'ye giriş yap</p>
         </div>
 
         {/* Form Card */}
