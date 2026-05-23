@@ -320,4 +320,6 @@ export default function HomeDashboard() {
         reportContext={report}
         alwaysVisible={true}
       />
-    </main
+    </main>
+  );
+}
