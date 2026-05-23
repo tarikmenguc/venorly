@@ -186,7 +186,7 @@ def run_scheduled(schedule_time: str = "06:00"):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Startup Idea Finder — Scheduler")
+    parser = argparse.ArgumentParser(description="Venorly — Scheduler")
     parser.add_argument("--now", action="store_true", help="Hemen bir kere çalıştır")
     parser.add_argument("--time", default="03:00", help="Günlük çalışma saati (default: 03:00)")
     args = parser.parse_args()
