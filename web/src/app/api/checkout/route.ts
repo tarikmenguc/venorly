@@ -40,7 +40,7 @@ export async function POST(request: Request) {
                     price_data: {
                         currency: 'usd',
                         product_data: {
-                            name: `Startup Idea Finder - ${planName} Plan`,
+                            name: `Venorly - ${planName} Plan`,
                             description: 'Friction Economy Engine pazar istihbaratı erişimi.',
                         },
                         unit_amount: priceAmount,
