@@ -634,7 +634,10 @@ SADECE aşağıdaki JSON yapısında yanıt ver (başka hiçbir şey yazma):
         # Ham JSON'u da state'e ekle (UI ve Auditor için)
         report_json = report_obj.model_dump()
     except Exception as e:
-        print(f"[Agent] ⚠️  JSON parse/validate hatası: {e} — Markdown fallback.")
+        parse_error = str(e)
+        raw_preview = locals().get("raw", "")[:300] if "raw" in locals() else "LLM çağrısı başarısız"
+        print(f"[Agent] ⚠️  JSON parse/validate hatası: {e}")
+        print(f"[Agent]    LLM çıktısı (ilk 300 karakter): {raw_preview}")
         # Never expose raw JSON to the user — build clean markdown from what we parsed
         if report_dict:
             exec_s = report_dict.get("executive_summary") or {}
@@ -648,6 +651,9 @@ SADECE aşağıdaki JSON yapısında yanıt ver (başka hiçbir şey yazma):
         else:
             report = f"# Rapor Hatası\n\n> ⚠️ Rapor üretilemedi: {e}\n"
         report_json = {}
+    else:
+        parse_error = None
+        raw_preview = None
 
     print("[Agent] ✅ Rapor üretildi (6 bölümlü standart).")
     _null = [k for k, v in report_json.items() if v is None] if report_json else ["tümü"]
@@ -655,7 +661,9 @@ SADECE aşağıdaki JSON yapısında yanıt ver (başka hiçbir şey yazma):
         "ideas_raw": ideas_raw[:600] if ideas_raw else "",
         "selected_idea": selected_idea[:300] if selected_idea else "",
         "json_valid": bool(report_json),
-        "null_fields": _null}]
+        "null_fields": _null,
+        "parse_error": parse_error,
+        "raw_preview": raw_preview}]
     return {**state, "final_report": report, "report_json": report_json, "trace": _t}
 
 
