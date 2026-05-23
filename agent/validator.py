@@ -236,64 +236,62 @@ Güven düzeyi: **{confidence}** — {confidence_note}
 
 def check_startup_graveyard(idea_summary: str, llm, user_category: str = "", target_category: str = "") -> str:
     """
-    Küçük, erken aşama girişimlere odaklanarak benzer başarısız ürünleri arar.
-    ProductHunt, Indie Hackers, HackerNews, BetaList öncelikli.
-    Büyük şirket örnekleri (OpenAI, Google, Meta vb.) filtrelenir.
+    Benzer başarısız girişimleri arar; her biri için ne denedi / ne kadar ilerledi /
+    tam neden kapandı / bu fikre özel uyarı üretir.
     """
     client = _get_tavily_client()
     if not client:
         return ""
 
-    # Büyük şirket filtresi — LLM analizi için
     BIG_COMPANIES = {
         "openai", "google", "meta", "microsoft", "apple", "amazon", "netflix",
         "uber", "airbnb", "twitter", "x.com", "adobe", "salesforce", "oracle",
         "sora", "gemini", "claude", "chatgpt", "copilot", "midjourney",
     }
 
-    # Çoklu sorgu stratejisi: küçük girişim odaklı, İngilizce
     niche = target_category or user_category or idea_summary
+    # Post-mortem ve founder açıklaması odaklı sorgular
     queries = [
-        f'small startup {niche} failed shut down site:indiehackers.com OR site:news.ycombinator.com',
-        f'{niche} product "we are shutting down" OR "shutting down" OR "failed to get traction" indie',
-        f'{niche} SaaS startup failed "not enough customers" OR "runway" OR "couldn\'t find PMF" 2022 2023 2024',
-        f'site:producthunt.com {niche} discontinued OR abandoned OR "no longer available"',
+        f'"{niche}" startup "post-mortem" OR "why we failed" OR "lessons learned" founder',
+        f'{niche} SaaS "we shut down" OR "shutting down" OR "couldn\'t find product market fit" site:indiehackers.com OR site:news.ycombinator.com',
+        f'{niche} startup failed 2021 2022 2023 2024 "ran out of runway" OR "not enough customers" OR "low retention" OR "high churn"',
+        f'site:producthunt.com {niche} "no longer" OR "discontinued" OR "sunsetting" startup',
+        f'{niche} indie hacker "gave up" OR "killed" OR "sunset" product 2022 2023 2024',
     ]
 
     all_results = []
-    seen_domains: set = set()
+    seen_urls: set = set()
 
     for query in queries:
-        if len(all_results) >= 6:
+        if len(all_results) >= 8:
             break
         try:
             resp = client.search(query=query, search_depth="advanced", max_results=4)
             for r in resp.get("results", []):
                 url = r.get("url", "")
+                if url in seen_urls:
+                    continue
+                seen_urls.add(url)
                 from urllib.parse import urlparse
                 domain = urlparse(url).netloc.replace("www.", "").lower()
-                if domain in seen_domains:
-                    continue
-                seen_domains.add(domain)
                 all_results.append({
                     "title": r.get("title", ""),
-                    "content": r.get("content", "")[:300],
+                    "content": r.get("content", "")[:500],   # 300 → 500 karakter
                     "url": url,
                     "domain": domain,
                 })
         except Exception as e:
             print(f"[Validator] Graveyard sorgu hatası: {e}")
 
-    # Büyük şirket içeren sonuçları LLM'ye göndermeden önce filtrele
-    filtered_results = []
+    # Büyük şirket filtresi
+    filtered = []
     for r in all_results:
-        text = (r.get('title', '') + ' ' + r.get('content', '')).lower()
-        domain_lower = r.get('domain', '').lower()
-        if any(name in text or name in domain_lower for name in BIG_COMPANIES):
+        text = (r.get("title", "") + " " + r.get("content", "")).lower()
+        if any(name in text or name in r.get("domain", "") for name in BIG_COMPANIES):
             print(f"[Validator] 🚫 Büyük şirket filtrelendi: {r['title'][:60]}")
         else:
-            filtered_results.append(r)
-    all_results = filtered_results
+            filtered.append(r)
+    all_results = filtered
 
     if not all_results:
         return """
@@ -302,37 +300,42 @@ def check_startup_graveyard(idea_summary: str, llm, user_category: str = "", tar
 
 ## Benzer Başarısız Girişimler
 
-Erken aşama girişimler arasında bu fikre benzer, kapatılmış bir ürüne dair veri bulunamadı. Bu tek başına güvence değildir — denenmemiş alan hem fırsat hem de kanıtsızlık anlamına gelir.
+Erken aşama girişimler arasında bu fikre benzer, kapatılmış bir ürüne dair veri bulunamadı. Bu, denenmemiş alan anlamına gelebilir — önceki hatalardan öğrenmek yerine kendi müşteri keşfinizi yapmanız gerekecek.
 """
 
-    results_text = "\n".join([
-        f"- {r['title']} ({r['domain']}): {r['content'][:200]}\n  URL: {r['url']}"
-        for r in all_results
+    results_text = "\n\n".join([
+        f"[{i+1}] Başlık: {r['title']}\n    Kaynak: {r['domain']} | URL: {r['url']}\n    İçerik: {r['content']}"
+        for i, r in enumerate(all_results)
     ])
 
-    prompt = f"""Aşağıda "{idea_summary}" fikrine benzer, daha önce denenmiş ve başarısız olmuş veya kapanmış ürünler/girişimler hakkında web araması sonuçları var.
+    prompt = f"""Aşağıdaki arama sonuçları "{idea_summary}" fikrine benzer girişimlerin başarısızlık hikayeleri veya post-mortem yazıları içeriyor.
 
-Sonuçlar:
+Arama Sonuçları:
 {results_text}
 
 GÖREV:
-1. Büyük teknoloji şirketlerini (OpenAI, Google, Meta, Microsoft, Sora, Gemini, Midjourney vb.) ve onların ürünlerini tamamen yoksay.
-2. Yalnızca küçük veya orta ölçekli, bağımsız kurucuların yürüttüğü girişimleri listele.
-3. Her biri için: ürün adı, tahmini kapanma yılı, kapanma sebebini 1 cümleyle Türkçe yaz.
-4. Bu örneklerden 1 somut, pratik ders çıkar.
-5. ÖNEMLI: Eğer arama sonuçlarında bir ürün için kapanma/başarısızlık kanıtı AÇIKÇA belirtilmiyorsa o ürünü listeye ekleme. Uydurma yapma.
+1. Büyük teknoloji şirketlerini (OpenAI, Google, Meta, Microsoft vb.) tamamen yoksay.
+2. Kapanma/başarısızlık kanıtı AÇIKÇA belirtilmeyen sonuçları listeye ekleme — uydurma yapma.
+3. Gerçekten uygun 2-4 bağımsız girişim bul. Uygun yoksa "YOK" yaz.
+4. Her girişim için DÖRT boyutu Türkçe yaz:
+   - Ne denedi: Ürünün amacı ve hedef kitlesi (1 cümle)
+   - Ne kadar ilerledi: Açıklanan metrikler (müşteri sayısı, MRR, süre — bilgi yoksa "Kamuya açık veri yok")
+   - Neden kapandı: Spesifik sebep — dağıtım sorunu / PMF yok / yüksek churn / fiyatlandırma / rakip baskısı / teknik borç (1-2 cümle, arama sonucundaki kanıta dayan)
+   - Bu fikre uyarı: "{idea_summary}" geliştirirken bu hatadan nasıl kaçınılır (1 somut cümle)
+5. Son olarak tüm örneklerden 1 ortak, pratik ders çıkar.
 
-Eğer büyük şirketler dışında gerçekten benzer başarısız bir girişim YOKSA, sadece "YOK" yaz.
+FORMAT (YALNIZCA TÜRKÇE, emoji yok):
+**[Girişim Adı] (~[Yıl])**
+- Ne denedi: ...
+- Ne kadar ilerledi: ...
+- Neden kapandı: ...
+- Bu fikre uyarı: ...
 
-YALNIZCA TÜRKÇE YAZ. Emoji kullanma. Format:
-1. [Ürün/Girişim Adı] (~[Yıl]): [Kapanma sebebi — 1 cümle]
-2. ...
-Ders: [1 somut, pratik cümle]"""
+**Ortak Ders:** ..."""
 
     try:
         analysis = llm.invoke([HumanMessage(content=prompt)]).content.strip()
 
-        # "YOK" yanıtı veya sadece büyük şirketler varsa
         if analysis.upper().startswith("YOK") and len(analysis) < 80:
             return """
 
@@ -340,23 +343,20 @@ Ders: [1 somut, pratik cümle]"""
 
 ## Benzer Başarısız Girişimler
 
-Bağımsız kurucular tarafından yürütülen, bu fikre benzer küçük girişimlere dair başarısızlık verisi bulunamadı. Bu, erken pazar doğrulamasının önemini artırır — önceki deneyimlerden öğrenmek yerine kendi müşteri keşifinizi yapmanız gerekecek.
+Bağımsız kurucuların yürüttüğü, bu fikre benzer girişimlere dair kamuya açık başarısızlık verisi bulunamadı. Bu, erken pazar doğrulamasının önemini artırır.
 """
-        else:
-            # Büyük şirket adı geçiyor mu kontrol et
-            analysis_lower = analysis.lower()
-            big_company_found = any(name in analysis_lower for name in BIG_COMPANIES)
-            note = ""
-            if big_company_found:
-                note = "\n_Not: Büyük şirket örnekleri analiz dışı bırakılmıştır; yukarıdaki liste yalnızca bağımsız girişimleri kapsamaktadır._"
 
-            return f"""
+        analysis_lower = analysis.lower()
+        big_found = any(name in analysis_lower for name in BIG_COMPANIES)
+        note = "\n_Not: Büyük şirket örnekleri analiz dışı bırakılmıştır._" if big_found else ""
+
+        return f"""
 
 ---
 
 ## Benzer Başarısız Girişimler
 
-Bu fikre yakın alanda daha önce denenmiş, traction bulamadan kapanmış girişimler tespit edildi. Aşağıdaki örnekler, aynı yola çıkmadan önce göz önünde bulundurulmalıdır.
+Bu fikre yakın alanda daha önce denenmiş girişimler tespit edildi. Her birinin neden başarısız olduğunu ve sizin için ne anlama geldiğini aşağıda bulabilirsiniz.
 
 {analysis}{note}
 """
