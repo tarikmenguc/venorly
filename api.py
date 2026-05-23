@@ -1,5 +1,5 @@
 """
-Startup Idea Finder — FastAPI Entry Point
+Venorly — FastAPI Entry Point
 Tüm endpoint mantığı routers/ altında. Bu dosya sadece:
   1. FastAPI app oluşturur
   2. CORS middleware ekler
@@ -15,7 +15,7 @@ from lib.pdf_generator import generate_report_pdf
 
 # ── App ──────────────────────────────────────────────
 
-app = FastAPI(title="Startup Idea Finder API")
+app = FastAPI(title="Venorly API")
 
 # ── CORS ─────────────────────────────────────────────
 
