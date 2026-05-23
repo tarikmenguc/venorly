@@ -222,7 +222,7 @@ export default function ProfilePage() {
                 </>
               ) : (
                 <>
-                  <h1 className="text-xl font-bold">Startup Idea Finder</h1>
+                  <h1 className="text-xl font-bold">Venorly</h1>
                   <p className="text-sm text-muted-foreground mt-0.5">Kişisel pazar istihbarat motoru</p>
                 </>
               )}
