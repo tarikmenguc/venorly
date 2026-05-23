@@ -98,7 +98,7 @@ def send_alert_email(to: str, keyword: str, opportunities: list[dict]) -> bool:
             Bu e-postayı almak istemiyorsanız
             <a href="{APP_URL}/alerts" style="color:#7c3aed;">alarm ayarlarınızı</a> güncelleyebilirsiniz.
           </p>
-          <p style="color:#374151;font-size:10px;margin:6px 0 0;">Startup Idea Finder — Niş Alarm Sistemi</p>
+          <p style="color:#374151;font-size:10px;margin:6px 0 0;">Venorly — Niş Alarm Sistemi</p>
         </div>
 
       </div>
