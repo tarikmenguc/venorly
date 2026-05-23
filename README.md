@@ -1,4 +1,4 @@
-# 🔍 Startup Idea Finder
+# 🔍 Venorly
 
 **Model-First Agentic RAG** — Trend AI modellerinden kanıtlanmış Micro-SaaS fırsatları bulan akıllı agent.
 
