@@ -142,4 +142,6 @@ def report_to_markdown(report: FeasibilityReport) -> str:
         if src.url:  # skip sources with empty URL
             lines.append(f"- [{src.title or src.url}]({src.url})")
     if not report.sources:
-        lines.append("(Kaynakça henüz bağlanmadı — Auditor Agent bağland
+        lines.append("(Kaynakça henüz bağlanmadı — Auditor Agent bağlandığında doldurulacak)")
+
+    return "\n".join(lines)
