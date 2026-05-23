@@ -379,11 +379,12 @@ def generate_opportunity_node(state: AgentState) -> AgentState:
     else:
         models_text = "  (Model verisi bulunamadı)"
 
-    # Uygulamalar — URL dahil
-    if state["matching_apps"]:
+    # Uygulamalar — URL dahil (boş isimli kayıtları atla)
+    valid_apps = [a for a in state.get("matching_apps", []) if a.get("name")]
+    if valid_apps:
         apps_text = "\n".join([
             f"  • {a['name']} | {a.get('url', 'URL yok')}"
-            for a in state["matching_apps"][:5]
+            for a in valid_apps[:5]
         ])
     else:
         apps_text = "  (Uygulama verisi bulunamadı)"
@@ -408,7 +409,7 @@ def generate_opportunity_node(state: AgentState) -> AgentState:
         url = m.get("url", "")
         if is_valid_source_url(url):
             source_pool.append(f"  - {m['name']}: {url}")
-    for a in state.get("matching_apps", [])[:5]:
+    for a in valid_apps[:5]:
         url = a.get("url", "")
         if is_valid_source_url(url):
             source_pool.append(f"  - {a['name']}: {url}")

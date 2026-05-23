@@ -139,8 +139,7 @@ def report_to_markdown(report: FeasibilityReport) -> str:
     if report.confidence_index is not None:
         lines.append(f"**Güven Endeksi:** {report.confidence_index:.0%}")
     for src in report.sources:
-        lines.append(f"- [{src.title or src.url}]({src.url})")
+        if src.url:  # skip sources with empty URL
+            lines.append(f"- [{src.title or src.url}]({src.url})")
     if not report.sources:
-        lines.append("(Kaynakça henüz bağlanmadı — Auditor Agent bağlandığında doldurulacak)")
-
-    return "\n".join(lines)
+        lines.append("(Kaynakça henüz bağlanmadı — Auditor Agent bağland
