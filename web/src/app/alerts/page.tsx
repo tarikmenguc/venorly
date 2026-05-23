@@ -248,7 +248,7 @@ export default function AlertsPage() {
         {/* Footer */}
         <div className="text-center py-6">
           <p className="text-xs text-muted-foreground">
-            Startup Idea Finder V6 — Niş Alarm Sistemi 🔔
+            Venorly
           </p>
         </div>
       </div>
