@@ -1,5 +1,5 @@
 """
-LangGraph Agentic RAG — Startup Idea Finder
+LangGraph Agentic RAG — Venorly
 Faz 3: trending modeller → pazar eşleştirme → rakip şikayetleri → store yorumları → fırsat raporu
 Faz 18: ChromaDB kaldırıldı — tüm vektör aramaları Tavily web aramasıyla değiştirildi.
 """
@@ -7,7 +7,6 @@ Faz 18: ChromaDB kaldırıldı — tüm vektör aramaları Tavily web aramasıyl
 import os
 import sys
 import json
-import random
 from typing import TypedDict, List, Optional
 
 from dotenv import load_dotenv
@@ -417,21 +416,7 @@ def generate_opportunity_node(state: AgentState) -> AgentState:
     if store_clusters:
         all_complaints += f"\nKullanıcı Yorumları:\n{store_clusters}\n"
 
-    # Perspektif
-    perspectives = [
-        "Sağlık sektörü (klinikler, doktorlar, eczaneler)",
-        "Eğitim sektörü (öğretmenler, online kurs yapımcıları)",
-        "E-ticaret (küçük mağaza sahipleri, dropshipper'lar)",
-        "Hukuk sektörü (avukatlar, hukuk büroları)",
-        "İçerik üreticileri (YouTuber'lar, podcast'çiler)",
-        "Freelancer'lar (tasarımcılar, yazılımcılar)",
-        "Restoran ve yeme-içme sektörü",
-        "Fitness ve spor antrenörleri",
-        "Küçük ajanslar (reklam, sosyal medya, PR)",
-        "Müzisyenler ve ses prodüktörleri",
-        "B2B SaaS girişimcileri",
-    ]
-    chosen_perspective = random.choice(perspectives)
+    chosen_perspective = state.get("target_category") or state["user_category"]
 
     # SEO verisi bölümü
     seo_data = state.get("seo_data", {})
@@ -484,10 +469,11 @@ Kurallar:
 - Tüketici uygulaması değil, iş araçları olsun.
 - Her fikir somut bir manuel iş sürecini otomatize etsin — genel "analiz aracı" veya "dashboard" olmasın.
 - AI API'leri kullanılarak üretilmiş olsun.
+- Her fikir, yukarıdaki Trend AI Modelleri listesinden BİRİNİ doğrudan temel almalıdır.
 - YALNIZCA TÜRKÇE yaz.
 
 Format:
-1. [Başlık] | Hedef: [Spesifik niş] | Sorun: [Manuel süreç] | Çözüm: [Otomasyon]
+1. [[Model Adı] ile Başlık] | Hedef: [Spesifik niş] | Sorun: [Manuel süreç] | Çözüm: [Otomasyon]
 2. ...
 3. ...
 
@@ -790,6 +776,14 @@ def auditor_node(state: AgentState) -> AgentState:
     from agent.auditor import run_audit
     result = run_audit(report_json, report_id=state.get("user_category", "unknown"))
 
+    # Güven Endeksi < 25% ise "Go" kararını "Hold" olarak geçersiz kıl
+    audited_json = result["report_json"]
+    current_decision = (audited_json.get("executive_summary") or {}).get("decision", "")
+    decision_overridden = result["confidence_index"] < 0.25 and current_decision == "Go"
+    if decision_overridden:
+        audited_json.setdefault("executive_summary", {})["decision"] = "Hold"
+        print(f"[Auditor] ⚠️  Güven Endeksi {result['confidence_index']:.0%} < 25% → Karar 'Go'→'Hold' olarak değiştirildi.")
+
     banner_map = {"green": "🟢", "yellow": "🟡", "red": "🔴"}
     banner_emoji = banner_map.get(result["banner"], "⚪")
     banner_line = (
@@ -798,10 +792,13 @@ def auditor_node(state: AgentState) -> AgentState:
         f"*{result['unverified_count']}/{result['total_claims']} iddia doğrulanamadı.*\n\n---\n\n"
     )
     final_report = banner_line + state.get("final_report", "")
+    if decision_overridden:
+        final_report = final_report.replace("**Karar:** Go", "**Karar:** Hold")
+        final_report = final_report.replace("**Karar:** ✅ Go", "**Karar:** ⚠️ Hold")
 
     return {
         **state,
-        "report_json": result["report_json"],
+        "report_json": audited_json,
         "final_report": final_report,
     }
 
