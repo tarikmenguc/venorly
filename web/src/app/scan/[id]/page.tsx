@@ -227,7 +227,7 @@ export default function ScanDetailPage() {
               </span>
            </div>
            <p className="text-xs text-muted-foreground">
-            Startup Idea Finder V6 — Scan Detail View 📄
+            Venorly
           </p>
         </div>
       </div>
