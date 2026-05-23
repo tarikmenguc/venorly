@@ -1,5 +1,5 @@
 /**
- * popup.js — Startup Idea Finder Chrome Extension Popup
+ * popup.js — Venorly Chrome Extension Popup
  *
  * Akış:
  * 1. Aktif sekme bilgilerini content script'ten çeker
