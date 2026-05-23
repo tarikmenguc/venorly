@@ -1,4 +1,4 @@
-# Startup Idea Finder — Chrome Extension
+# Venorly — Chrome Extension
 
 Ziyaret ettiğiniz herhangi bir web sayfasından (rakip SaaS ürünleri, landing pages, ProductHunt listelemeleri) tek tıklamayla Micro-SaaS fırsat analizi yapan Chrome Extension.
 
