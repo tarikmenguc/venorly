@@ -142,7 +142,7 @@ Bands: ≥0.75 green, ≥0.50 yellow, <0.50 red. Below 0.25 forces "Go"→"Hold"
 
 ---
 
-## 9. Windows/CRLF Warning — CRITICAL
+## 9. Windows/CRLF Warning — CRITICAl
 
 All `.py` files in this project use CRLF (`\r\n`) line endings (Windows).
 
