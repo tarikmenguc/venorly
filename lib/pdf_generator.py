@@ -18,7 +18,7 @@ class ReportPDF(FPDF):
         self.set_y(-15)
         self.set_font("helvetica", "I", 8)
         self.set_text_color(150, 150, 150)
-        self.cell(0, 10, f"Page {self.page_no()}/{{nb}} | Startup Idea Finder (c)", align="C")
+        self.cell(0, 10, f"Page {self.page_no()}/{{nb}} | Venorly (c)", align="C")
 
 def generate_report_pdf(scan_data: dict) -> bytes:
     """
