@@ -187,7 +187,7 @@ export default function PricingPage() {
         {/* Footer */}
         <div className="text-center py-6">
           <p className="text-xs text-muted-foreground">
-            Startup Idea Finder V6 — Friction Economy Engine 🚀
+            Venorly
           </p>
         </div>
       </div>
