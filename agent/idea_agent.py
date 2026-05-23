@@ -562,13 +562,16 @@ YALNIZCA TÜRKÇE olarak, sadece 3 maddelik özeti yaz."""
     ][:10])
 
     prompt3 = f"""Seçilen fikir: {selected_idea}
-Veri kaynakları: {data_context}
+Veri kaynakları (pazar büyüklüğü, gelir istatistikleri):
+{data_context}
 Rakip eksiklikleri: {complaints_summary}
 
 KURALLAR:
-- Uydurma yapma. Güvenilir kaynağı olmayan sayısal iddia için null yaz.
-- TAM/SAM/SOM: formül + varsayım zorunlu, yoksa null.
-- Tech stack: spesifik model adı + birim maliyet zorunlu.
+- Uydurma yapma. Ancak veri kaynağında sayısal ipucu varsa, makul bir tahmin yap ve formülünü göster.
+- Skor alanları (market_attractiveness vb.) 0-100 arası tam sayı. Makul tahmin yap, asla null bırakma.
+- TAM/SAM/SOM: veri kaynağından çıkarılabilecek en yakın büyüklüğü kullan. Formülü şeffaf göster.
+- weighted_score = market_attractiveness×0.30 + technical_barrier×0.30 + unit_economics×0.20 + gtm_ease×0.20
+- cpu_cost, ltv, cac: fiyatlandırma modeline göre makul tahmin yap (örn. "~$0.05/istek", "~$450 yıllık", "~$120").
 - Dil: Türkçe. Emoji/ünlem yok. Pazarlama dili yok.
 
 SADECE aşağıdaki JSON yapısında yanıt ver (başka hiçbir şey yazma):
@@ -576,19 +579,19 @@ SADECE aşağıdaki JSON yapısında yanıt ver (başka hiçbir şey yazma):
   "idea_title": "...",
   "executive_summary": {{
     "decision": "Go|Hold|No-Go",
-    "weighted_score": null,
-    "market_attractiveness": null,
-    "technical_barrier": null,
-    "unit_economics": null,
-    "gtm_ease": null,
+    "weighted_score": 0,
+    "market_attractiveness": 0,
+    "technical_barrier": 0,
+    "unit_economics": 0,
+    "gtm_ease": 0,
     "leap_of_faith": ["varsayım1", "varsayım2", "varsayım3"]
   }},
   "market": {{
-    "tam": null,
-    "tam_formula": null,
-    "sam": null,
-    "som": null,
-    "cagr": null,
+    "tam": "...",
+    "tam_formula": "...",
+    "sam": "...",
+    "som": "...",
+    "cagr": "...",
     "macro_signals": "..."
   }},
   "competition": {{
@@ -598,9 +601,9 @@ SADECE aşağıdaki JSON yapısında yanıt ver (başka hiçbir şey yazma):
   }},
   "technical": {{
     "stack": "...",
-    "cpu_cost": null,
-    "ltv": null,
-    "cac": null,
+    "cpu_cost": "...",
+    "ltv": "...",
+    "cac": "...",
     "pricing_model": "..."
   }},
   "validation": {{
@@ -614,6 +617,7 @@ SADECE aşağıdaki JSON yapısında yanıt ver (başka hiçbir şey yazma):
   "sources": {sources_json}
 }}"""
 
+    report_dict = {}  # initialize before try so except block can reference it
     try:
         llm_structured = ChatGroq(
             model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
@@ -631,7 +635,18 @@ SADECE aşağıdaki JSON yapısında yanıt ver (başka hiçbir şey yazma):
         report_json = report_obj.model_dump()
     except Exception as e:
         print(f"[Agent] ⚠️  JSON parse/validate hatası: {e} — Markdown fallback.")
-        report = raw if "raw" in dir() else f"LLM hatası: {e}"
+        # Never expose raw JSON to the user — build clean markdown from what we parsed
+        if report_dict:
+            exec_s = report_dict.get("executive_summary") or {}
+            title = report_dict.get("idea_title") or "Fikir Raporu"
+            decision = exec_s.get("decision") or "Bilinmiyor"
+            report = (
+                f"# {title}\n\n"
+                f"**Karar:** {decision}\n\n"
+                f"> ⚠️ Rapor kısmen oluşturuldu — bazı alanlar doğrulama aşamasında atlandı.\n"
+            )
+        else:
+            report = f"# Rapor Hatası\n\n> ⚠️ Rapor üretilemedi: {e}\n"
         report_json = {}
 
     print("[Agent] ✅ Rapor üretildi (6 bölümlü standart).")

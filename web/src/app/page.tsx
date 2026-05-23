@@ -170,7 +170,7 @@ export default function HomeDashboard() {
         {!report && !loading && (
           <div className="flex flex-col items-center justify-center -mt-20">
           <Badge variant="outline" className="mb-6 backdrop-blur-md bg-white/5 border-white/10 px-4 py-1 text-sm font-medium hover:bg-white/10 transition-colors">
-              <Sparkles className="w-4 h-4 mr-2" /> V6 Multi-Agent Research Engine
+              <Sparkles className="w-4 h-4 mr-2" /> Venorly — AI Pazar İstihbarat Motoru
             </Badge>
 
             <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight text-center max-w-4xl leading-tight">
@@ -320,6 +320,4 @@ export default function HomeDashboard() {
         reportContext={report}
         alwaysVisible={true}
       />
-    </main>
-  );
-}
+    </main
