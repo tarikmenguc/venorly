@@ -82,7 +82,7 @@ export default function SignUpPage() {
             <Sparkles size={22} className="text-primary" />
           </div>
           <h1 className="text-2xl font-bold text-white">Hesap Oluştur</h1>
-          <p className="text-muted-foreground text-sm mt-1">Startup Idea Finder'a katıl</p>
+          <p className="text-muted-foreground text-sm mt-1">Venorly'ye katıl</p>
         </div>
 
         {/* Form Card */}
