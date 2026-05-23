@@ -40,7 +40,7 @@ def main():
 
     step_ingest = ([python, PIPELINE_INGEST["script"]], PIPELINE_INGEST["label"])
 
-    print("\n🚀 Startup Idea Finder — Pipeline Başlıyor")
+    print("\n🚀 Venorly — Pipeline Başlıyor")
     print(f"   Mod: {mode}")
 
     success_count = 0
