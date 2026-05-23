@@ -91,7 +91,7 @@ KURALLAR:
 - Emojileri kullanarak cevapları okunabilir yap.
 - Somut tavsiyeler ver: Fiyat, hedef kitle, teknik stack, MVP süresi gibi."""
         else:
-            system_prompt = f"""Sen "Startup Idea Finder" uygulamasının yerleşik AI danışmanısın. 
+            system_prompt = f"""Sen "Venorly" uygulamasının yerleşik AI danışmanısın. 
 Kullanıcı bir pazar araştırması yaptı ve aşağıdaki raporu aldı. Şimdi seninle bu rapor hakkında konuşmak istiyor.
 
 KURALLAR:
