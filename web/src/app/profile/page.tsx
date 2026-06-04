@@ -15,6 +15,7 @@ import {
   CreditCard,
   Flame,
   Home,
+  KeyRound,
   Layers,
   LayoutGrid,
   Loader2,
@@ -26,6 +27,7 @@ import {
   XCircle,
   Zap,
 } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -98,6 +100,36 @@ export default function ProfilePage() {
   const [data, setData] = useState<ProfileData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Şifre değiştirme state
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [pwLoading, setPwLoading] = useState(false);
+  const [pwError, setPwError] = useState<string | null>(null);
+  const [pwSuccess, setPwSuccess] = useState(false);
+
+  const handleChangePassword = async () => {
+    setPwError(null);
+    setPwSuccess(false);
+    if (newPassword.length < 6) {
+      setPwError("Şifre en az 6 karakter olmalı.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPwError("Şifreler eşleşmiyor.");
+      return;
+    }
+    setPwLoading(true);
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    setPwLoading(false);
+    if (error) {
+      setPwError(error.message);
+    } else {
+      setPwSuccess(true);
+      setNewPassword("");
+      setConfirmPassword("");
+    }
+  };
 
   useEffect(() => {
     fetch("/api/profile")
@@ -394,6 +426,40 @@ export default function ProfilePage() {
               })}
             </div>
           )}
+        </div>
+
+        {/* ── Şifre Değiştir ── */}
+        <div className="bg-card/40 backdrop-blur-sm border border-border/60 rounded-2xl p-5">
+          <h2 className="text-sm font-semibold mb-4 flex items-center gap-2">
+            <KeyRound size={14} className="text-primary" />
+            Şifre Değiştir
+          </h2>
+          <div className="space-y-3 max-w-sm">
+            <input
+              type="password"
+              placeholder="Yeni şifre"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl bg-muted/40 border border-border/60 text-sm focus:outline-none focus:border-primary/50 transition-colors"
+            />
+            <input
+              type="password"
+              placeholder="Yeni şifre (tekrar)"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl bg-muted/40 border border-border/60 text-sm focus:outline-none focus:border-primary/50 transition-colors"
+            />
+            {pwError && <p className="text-xs text-rose-400">{pwError}</p>}
+            {pwSuccess && <p className="text-xs text-emerald-400">Şifre başarıyla güncellendi.</p>}
+            <button
+              onClick={handleChangePassword}
+              disabled={pwLoading}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+            >
+              {pwLoading ? <Loader2 size={13} className="animate-spin" /> : <KeyRound size={13} />}
+              Şifreyi Güncelle
+            </button>
+          </div>
         </div>
 
         {/* ── Quick Links ── */}
