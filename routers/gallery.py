@@ -13,8 +13,11 @@ async def get_gallery(
     page: int = 1,
     per_page: int = 12,
     category: str = "",
-    sort: str = "score",   # "score" | "date"
+    sort: str = "score",
 ):
+    # Pagination DoS engeli: per_page max 50, page max 500
+    per_page = max(1, min(per_page, 50))
+    page     = max(1, min(page, 500))
     """Galeri listesini sayfalanmış döner."""
     try:
         offset = (page - 1) * per_page
@@ -54,8 +57,10 @@ async def get_gallery(
             "pages":    max(1, (total + per_page - 1) // per_page),
         }
     except Exception as e:
-        print(f"[Gallery] List Error: {e}")
-        return Response(content=str(e), status_code=500)
+        import logging
+        logging.getLogger(__name__).error("Gallery list error: %s", e, exc_info=True)
+        return Response(content='{"error": "Galeri yuklenemedi."}',
+                        media_type="application/json", status_code=500)
 
 
 @router.get("/api/gallery/stats")
@@ -85,7 +90,10 @@ async def get_gallery_stats():
             "top_category": top_category,
         }
     except Exception as e:
-        return Response(content=str(e), status_code=500)
+        import logging
+        logging.getLogger(__name__).error("Gallery error: %s", e, exc_info=True)
+        return Response(content='{"error": "Istek yanitlanamadi."}',
+                        media_type="application/json", status_code=500)
 
 
 @router.get("/api/gallery/categories")
@@ -109,7 +117,10 @@ async def get_gallery_categories():
 
         return {"categories": sorted(cat_map.values(), key=lambda x: -x["count"])}
     except Exception as e:
-        return Response(content=str(e), status_code=500)
+        import logging
+        logging.getLogger(__name__).error("Gallery error: %s", e, exc_info=True)
+        return Response(content='{"error": "Istek yanitlanamadi."}',
+                        media_type="application/json", status_code=500)
 
 
 @router.get("/api/gallery/{scan_id}")
@@ -126,5 +137,7 @@ async def get_gallery_item(scan_id: str):
             return Response(content="Gallery item not found", status_code=404)
         return res.data
     except Exception as e:
-        print(f"[Gallery] Item Error: {e}")
-        return Response(content=str(e), status_code=404)
+        import logging
+        logging.getLogger(__name__).error("Gallery item error: %s", e, exc_info=True)
+        return Response(content='{"error": "Bulunamadi."}',
+                        media_type="application/json", status_code=404)
