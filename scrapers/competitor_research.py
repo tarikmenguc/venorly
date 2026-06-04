@@ -299,3 +299,118 @@ if __name__ == "__main__":
     for c in complaints[:3]:
         print(f"[{c['app']}] {c['source']}: {c['title']}")
         print(f"  {c['content'][:100]}...\n")
+
+
+# ── Reddit Sinyal Frekans Analizi ─────────────────────────────────────────────
+
+def reddit_signal_analysis(category: str, max_results: int = 25) -> list:
+    """
+    Reddit public JSON API ile problem frekans + intensite analizi yapar.
+    Auth gerektirmez. Reddily yaklasimi: upvote + tekrar sayisiyla sinyal gucu olcer.
+    Returns: [{"problem", "frequency", "avg_score", "sample_quote", "signal_strength", "url"}]
+    """
+    import requests
+    import time
+
+    headers = {"User-Agent": "Venorly-Research/1.0"}
+    queries = [
+        category + " problem complaints",
+        category + " tool issues frustrating",
+        category + " looking for alternative",
+    ]
+
+    raw_posts = []
+    seen_ids: set = set()
+
+    for query in queries:
+        try:
+            url = (
+                "https://www.reddit.com/search.json"
+                "?q=" + requests.utils.quote(query) +
+                "&sort=relevance&limit=10&type=link"
+            )
+            resp = requests.get(url, headers=headers, timeout=8)
+            if resp.status_code != 200:
+                continue
+            data = resp.json()
+            for post in data.get("data", {}).get("children", []):
+                p = post.get("data", {})
+                pid = p.get("id", "")
+                if pid in seen_ids or not p.get("title"):
+                    continue
+                seen_ids.add(pid)
+                raw_posts.append({
+                    "id":           pid,
+                    "title":        p.get("title", ""),
+                    "selftext":     (p.get("selftext") or "")[:300],
+                    "score":        int(p.get("score", 0)),
+                    "num_comments": int(p.get("num_comments", 0)),
+                    "url":          "https://reddit.com" + p.get("permalink", ""),
+                    "subreddit":    p.get("subreddit", ""),
+                })
+            time.sleep(0.5)
+        except Exception as e:
+            print("[RedditSignal] Sorgu hatasi: " + str(e))
+
+    if not raw_posts:
+        return []
+
+    # LLM ile problem temalarini cluster'la
+    try:
+        from lib.llm import get_llm
+        from langchain_core.messages import HumanMessage
+        import json
+
+        posts_text = "\n".join(
+            "[Score:{score} Comments:{comments}] r/{sub}: {title}".format(
+                score=p["score"], comments=p["num_comments"],
+                sub=p["subreddit"], title=p["title"]
+            )
+            for p in raw_posts[:20]
+        )
+
+        prompt = (
+            'Asagidaki Reddit gonderilerini analiz et. Bunlar "' + category + '" '
+            'kategorisindeki kullanici sikayet ve sorunlarini iceriyor.\n\n'
+            'Gonderiler:\n' + posts_text + '\n\n'
+            'GOREV: En sik tekrar eden 3-5 problem temasini bul. Her tema icin:\n'
+            '- problem: Kisa problem tanimi (Turkce, 5-8 kelime)\n'
+            '- frequency: Kac gonderide gectigini tahmin et (sayi)\n'
+            '- avg_score: Bu temaya ait gonderi ortalama skoru\n'
+            '- sample_quote: Bir gonderi basligini aynen alintila\n'
+            '- signal_strength: "guclu" (score>50) | "orta" | "zayif"\n\n'
+            'SADECE JSON array don:\n'
+            '[{"problem": "...", "frequency": 3, "avg_score": 45, '
+            '"sample_quote": "...", "signal_strength": "guclu"}]'
+        )
+
+        llm = get_llm(temp=0.1)
+        raw = llm.invoke([HumanMessage(content=prompt)]).content.strip()
+        start, end = raw.find("["), raw.rfind("]") + 1
+        if start >= 0 and end > start:
+            signals = json.loads(raw[start:end])
+            top_url = (
+                max(raw_posts, key=lambda x: x["score"])["url"]
+                if raw_posts else ""
+            )
+            for s in signals:
+                s["url"] = top_url
+                s["source"] = "reddit"
+            print("[RedditSignal] " + str(len(signals)) + " sinyal tespit edildi")
+            return signals
+    except Exception as e:
+        print("[RedditSignal] LLM cluster hatasi: " + str(e))
+
+    # Fallback: ham post listesi
+    return [
+        {
+            "problem":         p["title"][:80],
+            "frequency":       1,
+            "avg_score":       p["score"],
+            "sample_quote":    p["title"],
+            "signal_strength": "guclu" if p["score"] > 50 else "orta",
+            "url":             p["url"],
+            "source":          "reddit",
+        }
+        for p in sorted(raw_posts, key=lambda x: x["score"], reverse=True)[:5]
+    ]
