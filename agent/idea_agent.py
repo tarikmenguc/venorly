@@ -53,6 +53,8 @@ class AgentState(TypedDict):
     gtm_assets: str                  # generate_gtm_assets_node çıktısı
     report_json: dict                # generate_opportunity_node — ham JSON (Auditor için)
     market_data: str                 # fetch_market_data_node çıktısı: TAM/pazar büyüklüğü metinleri
+    reddit_signals: List[dict]       # reddit_signal_analysis çıktısı — frekans + intensite
+    buyer_leads: List[dict]          # buyer_leads_node çıktısı — müşteri adayları + DM şablonları
     error: Optional[str]
     trace: List[dict]         # debug: node-by-node execution log
 
@@ -288,7 +290,7 @@ def scrape_competitor_reviews_node(state: AgentState) -> AgentState:
 
     if not state["matching_apps"]:
         print("[Agent] ⚠️  Eşleşen app yok, şikayet araması atlanıyor.")
-        return {**state, "competitor_complaints": []}
+        return {**state, "competitor_complaints": [], "reddit_signals": []}
 
     # domain bazlı filtrele — çok genel siteleri (reddit, g2) çıkar
     skip_domains = {"reddit.com", "g2.com", "capterra.com", "trustpilot.com", "producthunt.com"}
@@ -307,10 +309,23 @@ def scrape_competitor_reviews_node(state: AgentState) -> AgentState:
         print(f"[Agent] ❌ Şikayet araması hatası: {e}")
         complaints = []
 
-    print(f"[Agent] ✅ {len(complaints)} şikayet/yorum bulundu.")
+    # Reddit sinyal frekans analizi — upvote + tekrar sayısıyla güçlü problem sinyalleri
+    category = state.get("target_category") or state.get("user_category", "")
+    reddit_signals = []
+    try:
+        from scrapers.competitor_research import reddit_signal_analysis
+        reddit_signals = reddit_signal_analysis(category)
+        if reddit_signals:
+            strong = [s for s in reddit_signals if s.get("signal_strength") == "guclu"]
+            print(f"[Agent] Reddit sinyalleri: {len(reddit_signals)} problem ({len(strong)} güçlü)")
+    except Exception as e:
+        print(f"[Agent] Reddit sinyal hatası (devam): {e}")
+
+    print(f"[Agent] ✅ {len(complaints)} şikayet/yorum + {len(reddit_signals)} Reddit sinyali bulundu.")
     _t = state.get("trace", []) + [{"node": "scrape_competitor_reviews",
-        "complaint_count": len(complaints)}]
-    return {**state, "competitor_complaints": complaints, "trace": _t}
+        "complaint_count": len(complaints),
+        "reddit_signal_count": len(reddit_signals)}]
+    return {**state, "competitor_complaints": complaints, "reddit_signals": reddit_signals, "trace": _t}
 
 
 # ──────────────────────────────────────────────
@@ -435,6 +450,17 @@ def generate_opportunity_node(state: AgentState) -> AgentState:
 
     chosen_perspective = state.get("target_category") or state["user_category"]
 
+    # Reddit sinyal verisini context'e ekle
+    _rs = state.get("reddit_signals", [])
+    reddit_signals_block = ""
+    if _rs:
+        _lines = []
+        for sig in _rs[:5]:
+            _lines.append(f"  [{sig.get('signal_strength','').upper()}] {sig.get('problem','')} — {sig.get('frequency','')}x tekrar, ort.skor:{sig.get('avg_score','')}")
+            if sig.get("sample_quote"):
+                _lines.append(f'    Ornek: "{sig["sample_quote"]}"')
+        reddit_signals_block = "\nReddit Problem Sinyalleri (frekans+intensite dogrulamali):\n" + "\n".join(_lines) + "\n"
+
     # SEO verisi bölümü
     seo_data = state.get("seo_data", {})
     seo_text = ""
@@ -466,7 +492,7 @@ Mevcut Uygulamalar ve Kaynakları:
 {apps_text}
 {all_complaints}{seo_text}
 {market_data_block}
-{cited_sources_block}"""
+{cited_sources_block}{reddit_signals_block}"""
 
     # ========================================
     # AŞAMA 1: 3 farklı fikir üret (yaratıcı)
@@ -590,6 +616,7 @@ SADECE aşağıdaki JSON yapısında yanıt ver (başka hiçbir şey yazma):
   "market": {{
     "tam": "...",
     "tam_formula": "...",
+    "tam_source": "Statista snippet|LLM bottom-up|kaynak adi",
     "sam": "...",
     "som": "...",
     "cagr": "...",
@@ -634,6 +661,36 @@ SADECE aşağıdaki JSON yapısında yanıt ver (başka hiçbir şey yazma):
         report = report_to_markdown(report_obj)
         # Ham JSON'u da state'e ekle (UI ve Auditor için)
         report_json = report_obj.model_dump()
+
+        # ── Ensemble karar doğrulaması (maliyet kontrolü: sadece Go kararında) ──
+        # İki model de onaylarsa güven artar; ayrışırsa Hold'a çek
+        current_decision = (report_json.get("executive_summary") or {}).get("decision", "")
+        if current_decision == "Go" and os.getenv("GOOGLE_API_KEY"):
+            try:
+                _check_prompt = (
+                    f"Asagidaki startup fikri raporuna gore karar ver — SADECE 'Go', 'Hold' veya 'No-Go' yaz, baska hicbir sey yazma.\n\n"
+                    f"Fikir: {report_json.get('idea_title','')}\n"
+                    f"Pazar: TAM={( report_json.get('market') or {}).get('tam','')} SAM={(report_json.get('market') or {}).get('sam','')}\n"
+                    f"Rekabet: {(report_json.get('competition') or {}).get('gap_summary','')[:200]}\n"
+                    f"Teknik: {(report_json.get('technical') or {}).get('stack','')}"
+                )
+                from lib.llm import get_llm
+                _gemini_resp = get_llm(provider="gemini", temp=0.1).invoke(
+                    [__import__("langchain_core.messages", fromlist=["HumanMessage"]).HumanMessage(content=_check_prompt)]
+                ).content.strip().split()[0]
+                _gemini_decision = _gemini_resp if _gemini_resp in ("Go", "Hold", "No-Go") else "Hold"
+                if _gemini_decision != "Go":
+                    # Groq Go dedi, Gemini farklı — Hold'a çek
+                    report_json["executive_summary"]["decision"] = "Hold"
+                    report_json["executive_summary"]["ensemble_note"] = (
+                        f"Groq: Go | Gemini: {_gemini_decision} → Model görüş ayrılığı, Hold olarak işaretlendi."
+                    )
+                    print(f"[Ensemble] Groq=Go / Gemini={_gemini_decision} → karar Hold'a çekildi")
+                else:
+                    report_json["executive_summary"]["ensemble_note"] = "Groq: Go | Gemini: Go → İki model uyumlu."
+                    print("[Ensemble] Her iki model Go → karar onaylandı ✅")
+            except Exception as _e:
+                print(f"[Ensemble] Gemini kontrol hatası (devam): {_e}")
     except Exception as e:
         parse_error = str(e)
         raw_preview = locals().get("raw", "")[:300] if "raw" in locals() else "LLM çağrısı başarısız"
@@ -817,6 +874,73 @@ Yorumlar:
 # S3 NODE — Auditor (Tek aşamalı grafikte de kullanılıyor)
 # ──────────────────────────────────────────────
 
+def buyer_leads_node(state: AgentState) -> AgentState:
+    """
+    Auditor bittikten sonra çalışır.
+    Upwork RSS + Reddit desperation sinyallerinden potansiyel müşteri bulur,
+    her biri için kişiselleştirilmiş DM şablonu üretir.
+    Bağımlılıklar: scrapers/reality_intel.py, agent/buyer_matcher.py
+    """
+    print("[BuyerLeads] Node → müşteri sinyalleri aranıyor")
+    category  = state.get("target_category") or state.get("user_category", "")
+    idea_title = (state.get("report_json") or {}).get("idea_title", category)
+
+    raw_leads = []
+
+    # 1. Upwork RSS — ödeme niyeti kanıtlanmış iş ilanları
+    try:
+        from scrapers.reality_intel import check_upwork_rss
+        jobs = check_upwork_rss(category, limit=20)
+        raw_leads.extend(jobs[:5])
+        print(f"[BuyerLeads] Upwork: {len(jobs)} ilan")
+    except Exception as e:
+        print(f"[BuyerLeads] Upwork hatası (devam): {e}")
+
+    # 2. Reddit — nişe uygun subreddit'lerden çaresizlik sinyalleri
+    _subreddit_map = {
+        "video":     ["VideoEditing", "NewTubers", "youtubers"],
+        "audio":     ["podcasting", "audioengineering"],
+        "design":    ["graphic_design", "UI_Design", "web_design"],
+        "code":      ["webdev", "learnprogramming", "SideProject"],
+        "marketing": ["marketing", "SEO", "digital_marketing"],
+        "legal":     ["LegalAdvice", "lawyers", "paralegal"],
+        "finance":   ["accounting", "smallbusiness", "financialplanning"],
+    }
+    subreddits = ["SaaS", "Entrepreneur", "smallbusiness"]
+    for key, subs in _subreddit_map.items():
+        if key in category.lower():
+            subreddits = subs
+            break
+
+    try:
+        from scrapers.reality_intel import scan_reddit_desperation
+        reddit_leads = scan_reddit_desperation(subreddits, limit=10)
+        raw_leads.extend(reddit_leads[:5])
+        print(f"[BuyerLeads] Reddit: {len(reddit_leads)} sinyal")
+    except Exception as e:
+        print(f"[BuyerLeads] Reddit hatası (devam): {e}")
+
+    if not raw_leads:
+        print("[BuyerLeads] Sinyal bulunamadı.")
+        return {**state, "buyer_leads": []}
+
+    # 3. DM şablonları üret
+    buyer_leads = raw_leads
+    try:
+        from agent.buyer_matcher import BuyerMatcherAgent
+        buyer_leads = BuyerMatcherAgent().process_leads(raw_leads[:10], saas_idea=idea_title)
+        print(f"[BuyerLeads] {len(buyer_leads)} lead için DM hazır ✅")
+    except Exception as e:
+        print(f"[BuyerLeads] DM üretme hatası (ham lead'ler kullanılıyor): {e}")
+
+    _t = state.get("trace", []) + [{
+        "node": "buyer_leads",
+        "lead_count": len(buyer_leads),
+        "sources": list(set(l.get("source", "?") for l in buyer_leads)),
+    }]
+    return {**state, "buyer_leads": buyer_leads, "trace": _t}
+
+
 def auditor_node(state: AgentState) -> AgentState:
     """Raporu okur, iddiaları doğrular, Güven Endeksi hesaplar."""
     print("[Agent] Node Auditor → rapor denetleniyor")
@@ -872,6 +996,7 @@ def build_graph():
     """Geriye dönük uyum — mevcut tek aşamalı akış."""
     from agent.competition_matrix import competition_matrix_node
     from agent.validator import validate_idea_node
+    from agent.pivot_node import pivot_node
 
     graph = StateGraph(AgentState)
     graph.add_node("expand_query",             expand_query_node)
@@ -887,6 +1012,8 @@ def build_graph():
     graph.add_node("generate_opportunity",      generate_opportunity_node)
     graph.add_node("validate_idea",             validate_idea_node)
     graph.add_node("auditor",                   auditor_node)
+    graph.add_node("buyer_leads",                buyer_leads_node)
+    graph.add_node("pivot",                      pivot_node)
 
     graph.set_entry_point("expand_query")
     graph.add_edge("expand_query",             "fetch_market_data")
@@ -901,7 +1028,9 @@ def build_graph():
     graph.add_edge("competition_matrix",        "generate_opportunity")
     graph.add_edge("generate_opportunity",      "validate_idea")
     graph.add_edge("validate_idea",             "auditor")
-    graph.add_edge("auditor",                   END)
+    graph.add_edge("auditor",                   "buyer_leads")
+    graph.add_edge("buyer_leads",                "pivot")
+    graph.add_edge("pivot",                      END)
 
     return graph.compile()
 
@@ -934,6 +1063,8 @@ if __name__ == "__main__":
         "competition_matrix": "",
         "final_report": "",
         "validation_details": "",
+        "reddit_signals": [],
+        "buyer_leads": [],
         "error": None,
     })
 
