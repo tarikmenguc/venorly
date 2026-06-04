@@ -188,9 +188,11 @@ ZORUNLU KURALLAR:
 3. Yukarıda pazar araştırması verisi varsa onu kullan — gerçek rakamları tercih et.
 4. Eğer hiç güvenilir veri yoksa bottom-up hesap yap; tamamen imkânsızsa ilgili alanı null bırak.
 5. "Genel SaaS pazarı $X" gibi belirsiz referanslara dayanma — kendi sektöre özgü hesapla.
+6. tam_source alanına TAM rakamının kaynağını yaz: pazar araştırması verisinden geldiyse kaynak adını
+   (örn. "Grand View Research snippet"), LLM tahmini ise "LLM bottom-up tahmin" yaz.
 
 SADECE aşağıdaki JSON formatında yanıt ver, başka hiçbir şey yazma:
-{{"tam": "$2.1B", "tam_formula": "~3M düğün fotoğrafçısı × $700/yıl = $2.1B", "tam_assumption": "Dünya genelinde ~3M düğün fotoğrafçısı olduğu tahmin edilmektedir", "sam": "$340M", "sam_formula": "TAM'ın ~%16'sı: dijital araç kullanan ABD+AB pazarı ~480K kişi × $700/yıl = $336M", "som": "$850K", "som_formula": "İlk yıl 1.500 müşteri × $49/ay × 12 = $882K", "confidence": "düşük"}}
+{{"tam": "$2.1B", "tam_formula": "~3M düğün fotoğrafçısı × $700/yıl = $2.1B", "tam_assumption": "Dünya genelinde ~3M düğün fotoğrafçısı olduğu tahmin edilmektedir", "sam": "$340M", "sam_formula": "TAM'ın ~%16'sı: dijital araç kullanan ABD+AB pazarı ~480K kişi × $700/yıl = $336M", "som": "$850K", "som_formula": "İlk yıl 1.500 müşteri × $49/ay × 12 = $882K", "confidence": "düşük", "tam_source": "Statista snippet|LLM bottom-up|Crunchbase|Grand View Research"}}
 
 tam/sam/som null olabilir. confidence: "yüksek" (kendi sektörüne özgü kanıtlı veri), "orta" (yaklaşık ama mantıklı), "düşük" (büyük ölçüde varsayım) olabilir."""
 
@@ -219,9 +221,9 @@ tam/sam/som null olabilir. confidence: "yüksek" (kendi sektörüne özgü kanı
 
 ## Pazar Büyüklüğü Tahmini
 
-| Metrik | Sonuç | Hesaplama Formülü | Varsayım |
-|--------|-------|-------------------|----------|
-| TAM (Toplam Adreslenebilir Pazar) | {data.get('tam') or 'veri yok'} | {data.get('tam_formula') or '-'} | {data.get('tam_assumption') or '-'} |
+| Metrik | Sonuç | Hesaplama Formülü | Varsayım | Kaynak |
+|--------|-------|-------------------|----------|---------| 
+| TAM (Toplam Adreslenebilir Pazar) | {data.get('tam') or 'veri yok'} | {data.get('tam_formula') or '-'} | {data.get('tam_assumption') or '-'} | {data.get('tam_source') or 'LLM tahmini'} |
 | SAM (Ulaşılabilir Pazar) | {data.get('sam') or 'veri yok'} | {data.get('sam_formula') or '-'} | — |
 | SOM (İlk Yıl Gerçekçi Hedef) | {data.get('som') or 'veri yok'} | {data.get('som_formula') or '-'} | — |
 
