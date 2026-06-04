@@ -28,7 +28,13 @@ async def get_chat_history(scan_id: str):
         res = supabase.table("chat_messages").select("*").eq("scan_id", scan_id).order("created_at").execute()
         return {"messages": res.data or [], "limit": CHAT_LIMIT_PER_SCAN}
     except Exception as e:
-        return Response(content=str(e), status_code=500)
+        import logging
+        logging.getLogger(__name__).error("Chat history error: %s", e, exc_info=True)
+        return Response(
+            content='{"error": "Sohbet gecmisi yuklenemedi."}',
+            media_type="application/json",
+            status_code=500,
+        )
 
 
 @router.post("/api/chat")
@@ -79,38 +85,37 @@ async def chat_endpoint(req: ChatRequest, user: dict = Depends(verify_user_token
         # 5. System prompt seçimi
         from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
+        # -- Sistem Promptu temiz ve sabit — kullanici verisi icermez -----
         if is_freeform:
-            system_prompt = """Sen deneyimli bir startup danışmanı ve Y Combinator mentörüsün.
-Kullanıcılar sana SaaS fikirleri, pazar fırsatları ve girişimcilik hakkında sorular soruyor.
-
-KURALLAR:
-- Kısa, net ve aksiyon odaklı cevaplar ver (max 300 kelime).
-- Türkçe cevap ver.
-- "Friction Economy" çerçevesini kullan: Sadece ağrı kesici fikirler (B2B, zaman kazandıran).
-- Fikir zayıfsa nazikçe ama dürüstçe söyle ve alternatif öner.
-- Emojileri kullanarak cevapları okunabilir yap.
-- Somut tavsiyeler ver: Fiyat, hedef kitle, teknik stack, MVP süresi gibi."""
+            system_prompt = (
+                "Sen deneyimli bir startup danismani ve Y Combinator mentorusun.\n"
+                "Kullanicilar sana SaaS fikirleri ve girisimcilik hakkinda sorular soruyor.\n\n"
+                "KURALLAR:\n"
+                "- Kisa, net ve aksiyon odakli cevaplar ver (max 300 kelime).\n"
+                "- Turkce cevap ver.\n"
+                "- Friction Economy cercevesi: Sadece B2B, zaman kazandiran fikirler.\n"
+                "- Fikir zayifsa nazikce ama donustce soyle ve alternatif oner.\n"
+                "- Somut tavsiyeler ver: Fiyat, hedef kitle, teknik stack, MVP suresi."
+            )
         else:
-            system_prompt = f"""Sen "Venorly" uygulamasının yerleşik AI danışmanısın. 
-Kullanıcı bir pazar araştırması yaptı ve aşağıdaki raporu aldı. Şimdi seninle bu rapor hakkında konuşmak istiyor.
-
-KURALLAR:
-- SADECE bu rapor bağlamında cevap ver. Genel sohbet yapma.
-- Kısa, net ve aksiyon odaklı cevaplar ver (max 300 kelime).
-- Türkçe cevap ver.
-- Emojileri kullanarak cevapları okunabilir yap.
-- Fiyatlandırma, teknik mimari, müşteri bulma, rakip analizi gibi konularda uzman gibi davran.
-
-RAPOR BAĞLAMI:
-Kategori: {scan_data.get('category', 'Bilinmiyor') if scan_data else 'Bilinmiyor'}
-Mod: {scan_data.get('mode', 'Bilinmiyor') if scan_data else 'Bilinmiyor'}
-
----
-{report_context[:3000]}
----"""
+            # Rapor icerigi system prompt'a GIRMEZ — prompt injection izolasyonu
+            category_safe = (scan_data.get("category", "Bilinmiyor") if scan_data else "Bilinmiyor")[:50]
+            system_prompt = (
+                "Sen Venorly AI danismanisın. Kullanici bir startup raporu hakkinda soru soruyor.\n"
+                "Sadece rapor baglaminda cevap ver. Turkce yaz. Max 300 kelime.\n"
+                f"Kategori: {category_safe}"
+            )
 
         messages = [SystemMessage(content=system_prompt)]
-        for msg in history:
+
+        # Rapor icerigi izole Human/AI mesaj cifti olarak eklenir (system seviyesinde degil)
+        # Bu yaklasim Stored Prompt Injection'i engeller: sistem talimat bolgesini kirletmez.
+        if not is_freeform and report_context:
+            safe_context = report_context[:2000]  # Boyut siniri
+            messages.append(HumanMessage(content="[RAPOR]\n" + safe_context + "\n[/RAPOR]"))
+            messages.append(AIMessage(content="Raporu inceledim. Sorularinizi yanıtlamaya hazirim."))
+
+        for msg in history[-10:]:  # Gecmis sinirla — bellek tasmasini onle
             if msg["role"] == "user":
                 messages.append(HumanMessage(content=msg["content"]))
             else:
@@ -143,5 +148,9 @@ Mod: {scan_data.get('mode', 'Bilinmiyor') if scan_data else 'Bilinmiyor'}
         return StreamingResponse(chat_stream(), media_type="text/event-stream")
 
     except Exception as e:
-        print(f"Chat Error: {e}")
-        return Response(content=json.dumps({"error": str(e)}), status_code=500, media_type="application/json")
+        import logging
+        logging.getLogger(__name__).error("Chat error: %s", e, exc_info=True)
+        return Response(
+            content=json.dumps({"error": "Chat servisi gecici olarak kullanilamiyor."}),
+            status_code=500, media_type="application/json"
+        )
