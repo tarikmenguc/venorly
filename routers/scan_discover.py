@@ -67,6 +67,8 @@ def generate_discover_events(req):
         "final_report": "",
         "seo_data": {},
         "market_data": "",
+        "report_json": {},
+        "buyer_leads": [],
         "error": None,
         "trace": [],
     }
@@ -82,6 +84,42 @@ def generate_discover_events(req):
     trace = final_state.get("trace", [])
     if trace:
         _save_trace(req.category, trace)
+
+    # Tamamlanan raporu Supabase'e kaydet
+    try:
+        import uuid
+        from lib.supabase_client import supabase
+        from lib.report_actions import compute_actions
+
+        scan_id = str(uuid.uuid4())
+        report_json = final_state.get("report_json") or {}
+        buyer_leads = final_state.get("buyer_leads") or []
+        actions = compute_actions(scan_id, report_json, buyer_leads)
+
+        full_report_payload = {
+            "final_report":  final_state.get("final_report", ""),
+            "report_json":   report_json,
+            "buyer_leads":   buyer_leads,
+            "reddit_signals": final_state.get("reddit_signals", []),
+            "actions":       actions,
+        }
+        # user_id: ownership kontrolü için — IDOR fix
+        from lib.auth_middleware import _APP_ENV, _DEV_ENVS
+        # generate_discover_events req parametresi user bilgisi taşımıyor;
+        # user_id scan_id ile birlikte frontend tarafından ayrıca set edilebilir.
+        # Şimdilik None — migration sonrası frontend update endpoint'i eklenebilir.
+        supabase.table("scans").insert({
+            "id":             scan_id,
+            "category":       req.category,
+            "mode":           req.mode if hasattr(req, "mode") else "discover",
+            "report_preview": final_state.get("final_report", "")[:300],
+            "leads_count":    len(buyer_leads),
+            "full_report":    full_report_payload,
+            "user_id":        None,  # /api/scans/{id}/claim ile set edilir
+        }).execute()
+        print(f"[Discover] ✅ Scan kaydedildi: {scan_id}")
+    except Exception as _e:
+        print(f"[Discover] Supabase kayit hatasi (devam): {_e}")
 
 
 # ──────────────────────────────────────────────
