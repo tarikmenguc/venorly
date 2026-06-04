@@ -15,6 +15,7 @@ class GoNoGoScore(BaseModel):
     unit_economics: Optional[float] = None          # % 20
     gtm_ease: Optional[float] = None                # % 20
     leap_of_faith: Optional[list[str]] = None       # 3 kritik varsayım
+    ensemble_note: Optional[str] = None             # "Groq: Go | Gemini: Go → uyumlu" gibi
 
 
 class MarketAnalysis(BaseModel):
@@ -24,6 +25,7 @@ class MarketAnalysis(BaseModel):
     som: Optional[str] = None
     cagr: Optional[str] = None
     macro_signals: Optional[str] = None  # Google Trends / Gartner kanıtları
+    tam_source: Optional[str] = None     # "Statista snippet" | "LLM bottom-up" | "Crunchbase"
 
 
 class Competitor(BaseModel):
@@ -72,6 +74,7 @@ class FeasibilityReport(BaseModel):
     validation: GtmAssets
     sources: list[Source] = []
     confidence_index: Optional[float] = None   # 0.0 - 1.0 (Auditor tarafından doldurulur)
+    pivot_suggestions: Optional[list[str]] = None  # Skor<50 ise 3 alternatif pivot önerisi
 
 
 def report_to_markdown(report: FeasibilityReport) -> str:
@@ -88,13 +91,15 @@ def report_to_markdown(report: FeasibilityReport) -> str:
     if g.leap_of_faith:
         lines += ["**Kritik Varsayımlar:**"]
         lines += [f"- {lof}" for lof in g.leap_of_faith]
+    if g.ensemble_note:
+        lines.append(f"*Model Konsensüsü: {g.ensemble_note}*")
     lines.append("")
 
     # Bölüm 2
     m = report.market
     lines += [
         "## 2. Makro Pazar Analizi",
-        f"- TAM: {m.tam or 'kaynak bulunamadı'}" + (f" ({m.tam_formula})" if m.tam_formula else ""),
+        f"- TAM: {m.tam or 'kaynak bulunamadı'}" + (f" ({m.tam_formula})" if m.tam_formula else "") + (f" — *Kaynak: {m.tam_source}*" if m.tam_source else " — *kaynak: LLM tahmini*"),
         f"- SAM: {m.sam or 'kaynak bulunamadı'}",
         f"- SOM: {m.som or 'kaynak bulunamadı'}",
         f"- CAGR: {m.cagr or 'bilinmiyor'}",
