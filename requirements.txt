@@ -20,3 +20,4 @@ pytrends
 pyjwt
 cryptography
 resend
+python-pptx
