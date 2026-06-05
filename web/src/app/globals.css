@@ -365,7 +365,7 @@
 /* ═══════════════════════════════════════════════
    VENORLY HOME — Claude Design v1 (vn- prefix)
 ═══════════════════════════════════════════════ */
-.vn-root { position:relative; min-height:100vh; overflow-x:hidden; background:var(--bg-base); color:var(--t1); font-family:var(--sans); }
+.vn-root { position:relative; min-height:100vh; overflow-x:hidden; background:var(--bg-base); color:var(--t1); font-family:var(--font-inter), system-ui, sans-serif; }
 
 /* Aurora */
 .vn-aurora { position:fixed; inset:0; z-index:0; pointer-events:none;
