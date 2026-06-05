@@ -7,8 +7,34 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-inter);
   --font-mono: var(--font-geist-mono);
+
+  /* Violet scale — override Tailwind defaults so existing from-violet-* classes use new palette */
+  --color-violet-50:  oklch(97%  0.020 268);
+  --color-violet-100: oklch(91%  0.080 268);
+  --color-violet-200: oklch(82%  0.145 268);
+  --color-violet-300: oklch(72%  0.205 268);
+  --color-violet-400: oklch(63%  0.248 268);
+  --color-violet-500: oklch(52%  0.276 268);
+  --color-violet-600: oklch(42%  0.284 268);
+  --color-violet-700: oklch(33%  0.276 268);
+  --color-violet-800: oklch(25%  0.260 268);
+  --color-violet-900: oklch(17%  0.225 268);
+  --color-violet-950: oklch(11%  0.185 268);
+
+  /* Purple — same scale, slightly warmer hue */
+  --color-purple-50:  oklch(97%  0.020 275);
+  --color-purple-100: oklch(91%  0.080 275);
+  --color-purple-200: oklch(82%  0.145 275);
+  --color-purple-300: oklch(72%  0.205 275);
+  --color-purple-400: oklch(63%  0.248 275);
+  --color-purple-500: oklch(52%  0.276 275);
+  --color-purple-600: oklch(42%  0.284 275);
+  --color-purple-700: oklch(33%  0.276 275);
+  --color-purple-800: oklch(25%  0.260 275);
+  --color-purple-900: oklch(17%  0.225 275);
+  --color-purple-950: oklch(11%  0.185 275);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
