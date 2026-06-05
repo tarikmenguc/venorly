@@ -20,6 +20,12 @@ SSE_HEADERS = {
 # Rate Limit Kontrolü
 # ──────────────────────────────────────────────
 
+# Admin hesapları — rate limit muaf
+ADMIN_USER_IDS = {
+    "e5691555-0c95-4806-914a-c200a0d14da5",  # tmenguc12@gmail.com
+}
+
+
 def check_rate_limit(ip: str, mode: str, user_data: dict = None) -> bool:
     """
     Kullanıcının kredisini veya günlük limitini kontrol eder.
@@ -29,6 +35,11 @@ def check_rate_limit(ip: str, mode: str, user_data: dict = None) -> bool:
         False → limit içinde (devam et)
     """
     try:
+        # Admin hesabı — limitsiz
+        user_id = (user_data or {}).get("sub") or (user_data or {}).get("id") or ""
+        if user_id in ADMIN_USER_IDS:
+            return False
+
         if user_data and not user_data.get("dev_mode"):
             # Kullanici giris yapmis — atomic kredi azaltma (TOCTOU race condition onlenir)
             clerk_id = user_data.get("sub") or user_data.get("id")
