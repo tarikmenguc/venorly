@@ -2,113 +2,142 @@
 
 export const dynamic = "force-dynamic";
 
-import { useState } from "react";
-import { GradientDots } from "@/components/ui/gradient-dots";
-import { NavBar } from "@/components/ui/tubelight-navbar";
-import { TextLoop } from "@/components/ui/text-loop";
-import { ChatPanel } from "@/components/ui/chat-panel";
-import { Home, Lightbulb, Search, Settings, LineChart, Cpu, Sparkles, Loader2, Users } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { useState, useEffect, useRef, useCallback } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { ChatPanel } from "@/components/ui/chat-panel";
 import { apiFetch } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 
-export default function HomeDashboard() {
-  const [category, setCategory] = useState("");
-  const [loading, setLoading] = useState(false);
+const WORDS = ["Micro-SaaS", "AI App", "Deep Tech", "Unicorn"];
+
+const NODES = [
+  "expand_query", "fetch_market_data", "fetch_trending_models",
+  "match_to_market", "scrape_competitor_reviews", "cluster_complaints",
+  "find_store_app", "scrape_store_reviews", "cluster_store_problems",
+  "competition_matrix", "generate_opportunity", "validate_idea", "auditor",
+];
+
+const MODES = {
+  disc: { label: "KEŞFET",       btn: "Hızlı Tarama",          color: "var(--c-disc)", bg: "var(--info-bg)",      border: "var(--info-bd)",      apiMode: "discover" },
+  deep: { label: "DERİN ANALİZ", btn: "Derin Analiz Başlat",   color: "var(--p300)",   bg: "oklch(11% .185 268)", border: "oklch(25% .26 268)", apiMode: "deep" },
+  orch: { label: "ORKESTRATÖR",  btn: "Orkestratörü Çalıştır", color: "var(--c-orch)", bg: "var(--warning-bg)",   border: "var(--warning-bd)",   apiMode: "orchestrate" },
+  comp: { label: "RAKİP ARA",    btn: "Rakip Tara",             color: "var(--c-comp)", bg: "var(--error-bg)",     border: "var(--error-bd)",     apiMode: "reverse" },
+  trnd: { label: "TRENDLER",     btn: "Trend Analizi",          color: "var(--c-trnd)", bg: "var(--success-bg)",   border: "var(--success-bd)",   apiMode: "trends" },
+} as const;
+
+type ModeKey = keyof typeof MODES;
+type AppState = "empty" | "loading" | "done";
+
+export default function HomePage() {
+  const router = useRouter();
+  const { user } = useAuth();
+
+  const [appState, setAppState]       = useState<AppState>("empty");
+  const [mode, setModeKey]            = useState<ModeKey>("disc");
+  const [category, setCategory]       = useState("");
+  const [wordIdx, setWordIdx]         = useState(0);
   const [currentNode, setCurrentNode] = useState("");
-  const [report, setReport] = useState("");
-  const [leads, setLeads] = useState<any[]>([]);
-  const [mode, setMode] = useState("discover");
+  const [pipelineStep, setPipelineStep] = useState(0);
+  const [report, setReport]           = useState("");
+  const [leads, setLeads]             = useState<any[]>([]);
+  const [scanId, setScanId]           = useState<string | null>(null);
   const [isCreatingWaitlist, setIsCreatingWaitlist] = useState(false);
-  const [scanId, setScanId] = useState<string | null>(null);
 
-  const navItems = [
-    { name: "Keşfet", url: "#", icon: Home, mode: "discover" },
-    { name: "Derin Analiz", url: "#", icon: Cpu, mode: "deep" },
-    { name: "Orkestratör", url: "#", icon: Users, mode: "orchestrate" },
-    { name: "Rakip Ara", url: "#", icon: Search, mode: "reverse" },
-    { name: "Trendler", url: "#", icon: LineChart, mode: "trends" },
-    { name: "Galeri", url: "/gallery", icon: Sparkles, href: "/gallery" },
-  ];
+  const pTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Word rotation
+  useEffect(() => {
+    const t = setInterval(() => setWordIdx(i => (i + 1) % WORDS.length), 2700);
+    return () => clearInterval(t);
+  }, []);
+
+  const goEmpty = useCallback(() => {
+    if (pTimerRef.current) clearInterval(pTimerRef.current);
+    setAppState("empty");
+    setCategory("");
+    setReport("");
+    setLeads([]);
+    setCurrentNode("");
+    setPipelineStep(0);
+    setScanId(null);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
 
   const handleScan = async () => {
-    if (!category) {
-      alert("Lütfen önce arama kutusuna bir konu veya rakip girin (Örn: AI Agents)");
-      return;
-    }
-    setLoading(true);
+    const q = category.trim();
+    if (!q) { alert("Lütfen bir kategori veya niş girin"); return; }
+
+    setAppState("loading");
     setCurrentNode("Agent başlatılıyor...");
     setReport("");
     setLeads([]);
+    setPipelineStep(0);
 
     try {
-      const response = await apiFetch('/api/scan', {
+      const response = await apiFetch("/api/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: mode, category }),
+        body: JSON.stringify({ mode: MODES[mode].apiMode, category: q }),
       });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        let msg = `HTTP ${response.status}`;
+        try { msg = JSON.parse(errText)?.detail || msg; } catch {}
+        if (response.status === 401) msg = "Oturumunuz yok veya süresi dolmuş. Lütfen giriş yapın.";
+        setCurrentNode(`Hata: ${msg}`);
+        setAppState("done");
+        return;
+      }
 
       if (!response.body) throw new Error("No response body");
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
-
       let buffer = "";
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-
         buffer += decoder.decode(value, { stream: true });
-        
-        let boundaryIndex;
-        while ((boundaryIndex = buffer.indexOf("\n\n")) >= 0) {
-          const ev = buffer.slice(0, boundaryIndex);
-          buffer = buffer.slice(boundaryIndex + 2);
-          
-          if (ev.startsWith("data: ")) {
-            try {
-              const dataStr = ev.replace("data: ", "");
-              if (!dataStr) continue;
-              const data = JSON.parse(dataStr);
-
-              if (data.scan_id) {
-                setScanId(data.scan_id);
+        let idx;
+        while ((idx = buffer.indexOf("\n\n")) >= 0) {
+          const ev = buffer.slice(0, idx);
+          buffer = buffer.slice(idx + 2);
+          if (!ev.startsWith("data: ")) continue;
+          try {
+            const data = JSON.parse(ev.slice(6));
+            if (data.scan_id) setScanId(data.scan_id);
+            if (data.status === "done") {
+              if (pTimerRef.current) clearInterval(pTimerRef.current);
+              setPipelineStep(NODES.length);
+              setCurrentNode("Tüm nodlar tamamlandı · 13/13");
+              setAppState("done");
+            } else if (data.error) {
+              if (pTimerRef.current) clearInterval(pTimerRef.current);
+              setCurrentNode(data.error);
+              setReport(`> **Hata:** ${data.error}`);
+              setAppState("done");
+            } else if (data.node) {
+              const ni = NODES.indexOf(data.node);
+              if (ni >= 0) setPipelineStep(ni);
+              setCurrentNode(`İşlem: ${data.node}...`);
+              if (data.state) {
+                const out = data.state.investment_memo || data.state.final_report;
+                if (out) setReport(out);
+                if (data.state.buyer_leads?.length > 0) setLeads(data.state.buyer_leads);
               }
-              if (data.status === "done") {
-                setLoading(false);
-                setCurrentNode("Analiz Tamamlandı ✨");
-              } else if (data.error) {
-                // Rate Limiting veya diğer backend hatalarını göster
-                setCurrentNode(data.error);
-                setReport(`> [!WARNING]\n> ${data.error}\n\n**Çözüm:** Farklı bir cihaz/internet ağı kullanarak veya API kotalarınızın sıfırlanması için yarın tekrar deneyebilirsiniz.`);
-                setLoading(false);
-                alert(`Hata: ${data.error}`);
-              } else if (data.node) {
-                setCurrentNode(`İşlem: ${data.node}...`);
-
-                if (data.state) {
-                  const finalOutput = data.state.investment_memo || data.state.final_report;
-                  if (finalOutput) {
-                    setReport(finalOutput);
-                  }
-                  if (data.state.buyer_leads && data.state.buyer_leads.length > 0) {
-                    setLeads(data.state.buyer_leads);
-                  }
-                }
-              }
-            } catch (e) {
-              console.error("JSON parse error for SSE chunk", e);
             }
-          }
+          } catch {}
         }
       }
-    } catch (error: any) {
-      console.error("Scan Error:", error);
-      setCurrentNode("Bağlantı Hatası: Lütfen arkada FastAPI'nin çalıştığından emin ol.");
-      setLoading(false);
-      alert("Hata: Backend (FastAPI) sunucusuna bağlanılamadı. Lütfen terminalden uvicorn'un çalıştığını kontrol edin.");
+    } catch {
+      if (pTimerRef.current) clearInterval(pTimerRef.current);
+      setCurrentNode("Bağlantı hatası — Backend çalışıyor mu?");
+      setAppState("done");
     }
   };
 
@@ -116,210 +145,266 @@ export default function HomeDashboard() {
     if (!report) return;
     setIsCreatingWaitlist(true);
     try {
-      // Çok basit bir regex ile raporun içinden başlığı ve fikri çekiyoruz
       const titleMatch = report.match(/🔥 NİŞ FIRSAT: (.+)/);
-      const title = titleMatch ? titleMatch[1].replace(/━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━/g, '').trim() : `${category} için AI Otomasyonu`;
-
+      const title = titleMatch ? titleMatch[1].replace(/━+/g, "").trim() : `${category} için AI Otomasyonu`;
       const audienceMatch = report.match(/🎯 Odaklanılacak B2B Niş: (.+)/);
       const audience = audienceMatch ? audienceMatch[1].trim() : "B2B Profesyoneller";
-
-      const summaryMatch = report.match(/💡 Fırsat Özeti:([\s\S]*?)(🔗|━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━|$)/);
-      let description = "Manuel saatler alan angaryayı tek tıklamaya indiren yapay zeka çözümü.";
-      if (summaryMatch && summaryMatch[1]) {
-        description = summaryMatch[1].replace(/\[|\]/g, '').trim();
-      }
-
+      const summaryMatch = report.match(/💡 Fırsat Özeti:([\s\S]*?)(🔗|━|$)/);
+      const description = summaryMatch?.[1]?.replace(/\[|\]/g, "").trim() ||
+        "Manuel saatler alan angaryayı tek tıklamaya indiren yapay zeka çözümü.";
       const res = await fetch("/api/waitlist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, description, target_audience: audience })
+        body: JSON.stringify({ title, description, target_audience: audience }),
       });
-
       const data = await res.json();
-      if (data.id) {
-        window.open(`/waitlist/${data.id}`, '_blank');
-      } else {
-        alert("Waitlist oluşturulamadı.");
-      }
-    } catch (e) {
-      alert("Hata oluştu.");
-    } finally {
-      setIsCreatingWaitlist(false);
-    }
+      if (data.id) window.open(`/waitlist/${data.id}`, "_blank");
+      else alert("Waitlist oluşturulamadı.");
+    } catch { alert("Hata oluştu."); }
+    finally { setIsCreatingWaitlist(false); }
   };
 
+  const m = MODES[mode];
+  const modePill = (
+    <span className="vn-mode-pill" style={{ color: m.color, background: m.bg, borderColor: m.border }}>
+      {m.label}
+    </span>
+  );
+
   return (
-    <main className="relative flex min-h-screen w-full flex-col bg-background text-foreground overflow-x-hidden">
-      {/* Arka plan animasyonu tıklamaları engellememesi için pointer-events-none */}
-      <div className="absolute inset-0 pointer-events-none z-[-1]">
-        <GradientDots dotSize={1} spacing={20} opacity={0.35} className="w-full h-full pointer-events-none" />
-      </div>
+    <main className="vn-root">
+      {/* Background */}
+      <div className="vn-aurora" />
+      <div className="vn-orb vn-orb1" />
+      <div className="vn-orb vn-orb2" />
+      <div className="vn-orb vn-orb3" />
 
-      {/* Navbar'ı doğrudan çağırıyoruz ve mode değiştiğinde her şeyi sıfırlıyoruz */}
-      <NavBar items={navItems} onTabChange={(newMode: string) => {
-        setMode(newMode);
-        setReport("");
-        setLeads([]);
-        setCategory("");
-        setCurrentNode("");
-      }} activeMode={mode} />
+      {/* Navbar */}
+      <nav className="vn-nav">
+        <button className="vn-brand" onClick={goEmpty}>
+          <div className="vn-mark">V</div>
+          <span className="vn-name">Venorly</span>
+        </button>
+        <div className="vn-tabs">
+          {(Object.keys(MODES) as ModeKey[]).map(k => (
+            <button
+              key={k}
+              className={`vn-tab${mode === k ? " on" : ""}`}
+              onClick={() => { setModeKey(k); setReport(""); setLeads([]); setCategory(""); setCurrentNode(""); }}
+            >
+              <span className="vn-dot" style={{ background: MODES[k].color }} />
+              {{ disc: "Keşfet", deep: "Derin Analiz", orch: "Orkestratör", comp: "Rakip Ara", trnd: "Trendler" }[k]}
+            </button>
+          ))}
+          <Link href="/gallery" className="vn-tab">
+            <span className="vn-dot" style={{ background: "var(--t4)" }} />
+            Galeri
+          </Link>
+        </div>
+        <div className="vn-nav-right">
+          {user ? (
+            <div className="vn-avatar" onClick={() => router.push("/profile")} title={user.email ?? ""}>
+              {user.email?.[0]?.toUpperCase() ?? "U"}
+            </div>
+          ) : (
+            <Link href="/sign-in" className="vn-avatar" style={{ fontSize: 10 }}>Giriş</Link>
+          )}
+        </div>
+      </nav>
 
-      {/* İçerik alanının tıklanabilir olması için z-10 */}
-      <div className="relative z-10 flex flex-col items-center justify-center min-h-screen px-4 pt-24 pb-12 w-full max-w-5xl mx-auto">
+      <div className="vn-main">
 
-        {!report && !loading && (
-          <div className="flex flex-col items-center justify-center -mt-20">
-          <Badge variant="outline" className="mb-6 backdrop-blur-md bg-white/5 border-white/10 px-4 py-1 text-sm font-medium hover:bg-white/10 transition-colors">
-              <Sparkles className="w-4 h-4 mr-2" /> Venorly — AI Pazar İstihbarat Motoru
-            </Badge>
-
-            <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight text-center max-w-4xl leading-tight">
-              Find your next{" "}
-              <br className="md:hidden" />
-              <span className="text-primary inline-flex">
-                <TextLoop interval={3}>
-                  <span>Micro-SaaS.</span>
-                  <span>AI App.</span>
-                  <span>Deep Tech.</span>
-                  <span>Unicorn.</span>
-                </TextLoop>
-              </span>
+        {/* ── STATE 1: EMPTY ── */}
+        {appState === "empty" && (
+          <div className="vn-s-empty">
+            <div className="vn-hero-badge">
+              <div className="vn-badge-pulse" />
+              AI Pipeline — 13 Ajan Aktif
+            </div>
+            <h1 className="vn-hero-h1">
+              <span className="vn-hero-first">Find your next</span>
+              <span key={wordIdx} className="vn-hero-word">{WORDS[wordIdx]}</span>
             </h1>
-
-            <p className="mt-6 max-w-2xl text-center text-lg text-muted-foreground/80 font-medium">
-              Yapay zeka destekli pazar istihbarat motoru.
+            <p className="vn-hero-sub">
+              Yapay zeka destekli pazar istihbarat motoru.<br />
               Kârlı nişleri herkes bulmadan önce keşfet.
             </p>
-
-            <div className="mt-10 flex flex-col sm:flex-row gap-4 w-full max-w-lg relative z-20">
+            <div className="vn-search-pill">
               <input
+                className="vn-search-input"
                 value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                placeholder={mode === "reverse" ? "Örn: Lumen5..." : "Örn: Video Generation..."}
-                className="flex-1 px-6 py-4 rounded-full bg-white/5 border border-white/10 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-primary backdrop-blur-md"
+                onChange={e => setCategory(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && handleScan()}
+                placeholder={mode === "comp" ? "Örn: Lumen5..." : "Örn: Video Generation..."}
+                autoComplete="off"
               />
-              <button
-                onClick={handleScan}
-                className="px-8 py-4 rounded-full bg-primary text-primary-foreground font-semibold text-lg shadow-[0_0_40px_-10px_rgba(var(--primary),0.8)] hover:scale-105 transition-all duration-300 whitespace-nowrap cursor-pointer z-30"
-              >
-                {mode === "reverse" ? "Rakip Analizi Başlat" : mode === "deep" ? "Derin Analiz" : "Hızlı Tarama"}
+              <button className="vn-search-go" onClick={handleScan}>
+                <span>{m.btn}</span>
               </button>
             </div>
-
-            <div className="mt-6 flex gap-4 text-sm">
-              <a href="/features" className="text-muted-foreground hover:text-white transition-colors underline underline-offset-4">
-                Nasıl Çalışır?
-              </a>
-              <a href="/dashboard" className="text-muted-foreground hover:text-white transition-colors underline underline-offset-4">
-                Dashboard
-              </a>
-              <a href="/pricing" className="text-muted-foreground hover:text-white transition-colors underline underline-offset-4">
-                Fiyatlandırma
-              </a>
+            <div className="vn-hero-links">
+              <Link href="/features" className="vn-hero-link">Nasıl Çalışır?</Link>
+              <span className="vn-sep">·</span>
+              <Link href="/dashboard" className="vn-hero-link">Dashboard</Link>
+              <span className="vn-sep">·</span>
+              <Link href="/pricing" className="vn-hero-link">Fiyatlandırma</Link>
             </div>
           </div>
         )}
 
-        {(loading || report) && (
-          <div className="w-full flex-1 flex flex-col items-center animate-in fade-in duration-500">
-            <div className="w-full max-w-4xl p-6 rounded-2xl bg-black/40 border border-white/10 backdrop-blur-xl mb-8 flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                {loading ? (
-                  <Loader2 className="w-6 h-6 text-primary animate-spin" />
-                ) : (
-                  <Sparkles className="w-6 h-6 text-primary" />
-                )}
-                <div>
-                  <h3 className="font-semibold text-white">Analiz Durumu</h3>
-                  <p className="text-sm text-white/60">{currentNode}</p>
+        {/* ── STATE 2: LOADING ── */}
+        {appState === "loading" && (
+          <div className="vn-s-load">
+            <div className="vn-content-shell">
+              <div className="vn-status-card">
+                <div className="vn-sc-top">
+                  <div className="vn-spinner" />
+                  <div className="vn-sc-info">
+                    <div className="vn-sc-title">Analiz Yürütülüyor</div>
+                    <div className="vn-sc-node">{currentNode}</div>
+                  </div>
+                  {modePill}
+                </div>
+                <div className="vn-pipeline">
+                  {NODES.map((_, i) => (
+                    <div
+                      key={i}
+                      className={`vn-p-step${i < pipelineStep ? " done" : i === pipelineStep ? " live" : ""}`}
+                    />
+                  ))}
                 </div>
               </div>
-              <Badge variant="outline" className="border-primary/50 text-primary bg-primary/10">
-                {mode === 'deep' ? '🧠 Deep Research' : '⚡ Quick Discover'}
-              </Badge>
-            </div>
-
-            {report && (
-              <div className="w-full max-w-4xl p-8 rounded-2xl bg-black/60 border border-white/10 backdrop-blur-2xl shadow-2xl overflow-y-auto prose prose-invert prose-primary mx-auto">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {report}
-                </ReactMarkdown>
+              {/* Skeleton */}
+              <div className="vn-skel-card">
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 18 }}>
+                  <div className="vn-skel" style={{ width: 160 }} />
+                  <div className="vn-skel" style={{ width: 72 }} />
+                </div>
+                <div className="vn-skel-3col" style={{ marginBottom: 20 }}>
+                  {[0, 1, 2].map(i => (
+                    <div key={i} className="vn-skel-chip">
+                      <div className="vn-skel" style={{ width: 44, height: 22, borderRadius: 4 }} />
+                      <div className="vn-skel" style={{ width: 60 }} />
+                    </div>
+                  ))}
+                </div>
+                <div className="vn-skel" style={{ width: 90, marginBottom: 10 }} />
+                <div className="vn-skel" style={{ width: "100%", marginBottom: 8 }} />
+                <div className="vn-skel" style={{ width: "88%", marginBottom: 8 }} />
+                <div className="vn-skel" style={{ width: "55%" }} />
               </div>
-            )}
+            </div>
+          </div>
+        )}
 
-            {leads.length > 0 && (
-              <div className="w-full max-w-4xl p-8 rounded-2xl bg-black/60 border border-white/10 backdrop-blur-2xl shadow-2xl mt-8 mx-auto animate-in slide-in-from-bottom-5">
-                <h3 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
-                  <Sparkles className="w-5 h-5 text-primary" />
-                  Hazır Alıcılar (Friction Economy Leads)
-                </h3>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
+        {/* ── STATE 3: DONE ── */}
+        {appState === "done" && (
+          <div className="vn-s-done">
+            <div className="vn-content-shell">
+
+              {/* Status bar */}
+              <div className="vn-status-card vn-done-card">
+                <div className="vn-sc-top vn-no-mb">
+                  <span style={{ fontSize: 20 }}>✨</span>
+                  <div className="vn-sc-info">
+                    <div className="vn-sc-title">Analiz Tamamlandı</div>
+                    <div className="vn-sc-done">{currentNode}</div>
+                  </div>
+                  {modePill}
+                  <button className="vn-reset-btn" onClick={goEmpty}>↩ Yeni Tarama</button>
+                </div>
+              </div>
+
+              {/* Report */}
+              {report && (
+                <div className="vn-glass-card">
+                  <div className="vn-card-head">
+                    <div>
+                      <div className="vn-card-title">Pazar Analiz Raporu — {category}</div>
+                      <div className="vn-card-meta">
+                        13 AI Ajan · {new Date().toLocaleDateString("tr-TR", { month: "long", year: "numeric" })}
+                      </div>
+                    </div>
+                    {modePill}
+                  </div>
+                  <div className="vn-card-body">
+                    <div className="prose prose-invert prose-primary">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{report}</ReactMarkdown>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Leads */}
+              {leads.length > 0 && (
+                <div className="vn-leads-wrap">
+                  <div className="vn-card-head">
+                    <div>
+                      <div className="vn-card-title">Lead Fırsatları</div>
+                      <div className="vn-card-meta">{leads.length} potansiyel alıcı bulundu</div>
+                    </div>
+                  </div>
+                  <table className="vn-leads-table">
                     <thead>
-                      <tr className="border-b border-white/10">
-                        <th className="pb-3 px-4 font-medium text-white/60">Platform</th>
-                        <th className="pb-3 px-4 font-medium text-white/60">Gönderi/Ağrı Noktası</th>
-                        <th className="pb-3 px-4 font-medium text-white/60 w-1/3">Satış / DM Şablonu</th>
+                      <tr>
+                        <th>Platform</th>
+                        <th>Gönderi / Ağrı Noktası</th>
+                        <th>DM Şablonu</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {leads.map((lead, idx) => (
-                        <tr key={idx} className="border-b border-white/5 hover:bg-white/5 transition-colors">
-                          <td className="py-4 px-4 align-top">
-                            <Badge variant="outline" className="bg-primary/10 text-primary border-primary/30">
-                              {lead.source}
-                            </Badge>
-                          </td>
-                          <td className="py-4 px-4 align-top text-sm text-white/80">
-                            <p className="font-semibold mb-1">{lead.title}</p>
-                            <p className="text-white/50 line-clamp-2">{lead.desc}</p>
+                      {leads.map((lead, i) => (
+                        <tr key={i}>
+                          <td><span className="vn-pchip">{lead.source}</span></td>
+                          <td>
+                            <p className="vn-post-text">{lead.title}</p>
+                            {lead.desc && (
+                              <p style={{ color: "var(--t3)", fontSize: 12, marginTop: 3 }}>{lead.desc}</p>
+                            )}
                             {lead.url && (
-                              <a href={lead.url} target="_blank" rel="noreferrer" className="text-primary hover:underline mt-2 inline-block">Sinyale Git &rarr;</a>
+                              <a href={lead.url} target="_blank" rel="noreferrer"
+                                style={{ color: "var(--p400)", fontSize: 12, display: "inline-block", marginTop: 4 }}>
+                                Sinyale Git →
+                              </a>
                             )}
                           </td>
-                          <td className="py-4 px-4 align-top">
-                            <div className="bg-white/5 p-3 rounded-lg border border-white/10 text-sm text-white/90 font-mono">
-                              {lead.sales_pitch || "Şablon oluşturulamadı."}
-                            </div>
-                          </td>
+                          <td className="vn-dm-text">{lead.sales_pitch || "Şablon oluşturulamadı."}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
-              </div>
-            )}
+              )}
 
-            {report && !loading && (
-              <div className="w-full max-w-4xl p-8 rounded-2xl bg-black/40 border border-emerald-500/20 backdrop-blur-2xl shadow-2xl mt-8 mx-auto flex flex-col sm:flex-row items-center justify-between gap-6 animate-in slide-in-from-bottom-5">
-                <div>
-                  <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
-                    🚀 Bu Fikri Doğrulamak İster Misin?
-                  </h3>
-                  <p className="text-white/60 text-sm max-w-lg">
-                    Sıfır kod yazmadan bu Micro-SaaS fikri için anında şık bir "Erken Erişim" (Waitlist) sayfası oluştur ve müşterilerden mail toplamaya başla.
-                  </p>
+              {/* CTA */}
+              {report && (
+                <div className="vn-cta-card">
+                  <div>
+                    <div className="vn-cta-title">Bu Fikri Doğrulamak İster Misin?</div>
+                    <div className="vn-cta-sub">
+                      Otomatik landing page, waitlist formu ve pitch deck oluştur.<br />
+                      5 dakikada doğrulama sürecini başlat.
+                    </div>
+                  </div>
+                  <button
+                    className="vn-cta-btn"
+                    onClick={handleCreateWaitlist}
+                    disabled={isCreatingWaitlist}
+                  >
+                    {isCreatingWaitlist ? "Sayfa Kuruluyor..." : "✦ Doğrulama Sayfası Oluştur"}
+                  </button>
                 </div>
-                <button
-                  onClick={handleCreateWaitlist}
-                  disabled={isCreatingWaitlist}
-                  className="px-8 py-4 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-semibold transition-all flex items-center gap-2 whitespace-nowrap disabled:opacity-50"
-                >
-                  {isCreatingWaitlist ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
-                  {isCreatingWaitlist ? "Sayfa Kuruluyor..." : "Doğrulama Sayfası Oluştur"}
-                </button>
-              </div>
-            )}
+              )}
+
+            </div>
           </div>
         )}
       </div>
 
-      {/* AI Chat Panel — her zaman göster: rapor varsa rapor modu, yoksa bağımsız mod */}
-      <ChatPanel
-        scanId={scanId}
-        reportContext={report}
-        alwaysVisible={true}
-      />
+      {/* Chat Panel */}
+      {(appState === "done" || report) && (
+        <ChatPanel scanId={scanId} reportContext={report} alwaysVisible={true} />
+      )}
     </main>
   );
 }
