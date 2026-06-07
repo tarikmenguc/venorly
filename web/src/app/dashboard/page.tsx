@@ -2,26 +2,11 @@
 
 export const dynamic = "force-dynamic";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import {
-  BarChart3,
-  TrendingUp,
-  Users,
-  Mail,
-  Search,
-  Cpu,
-  Zap,
-  ArrowRight,
-  CheckCircle2,
-  XCircle,
-  Sparkles,
-  Loader2,
-  Bell,
-  CreditCard,
-  Target,
-  FileDown,
-} from "lucide-react";
+import Link from "next/link";
+
+// ── Types ────────────────────────────────────────────────────────────────────
 
 interface DashboardStats {
   total_scans: number;
@@ -30,13 +15,7 @@ interface DashboardStats {
   total_angles: number;
   waitlist_count: number;
   total_emails: number;
-  modes: {
-    discover: number;
-    deep: number;
-    orchestrate: number;
-    reverse: number;
-    trends: number;
-  };
+  modes: { discover: number; deep: number; orchestrate: number; reverse: number; trends: number };
 }
 
 interface ScanRecord {
@@ -48,268 +27,356 @@ interface ScanRecord {
   report_preview: string;
   leads_count: number;
   angles_count: number;
+  confidence_score?: number;
 }
 
-const MODE_CONFIG: Record<string, { label: string; color: string; icon: typeof Search }> = {
-  discover: { label: "Keşfet", color: "from-blue-500 to-cyan-400", icon: Search },
-  deep: { label: "Derin Analiz", color: "from-purple-500 to-violet-400", icon: Cpu },
-  orchestrate: { label: "Orkestratör", color: "from-amber-500 to-orange-400", icon: Users },
-  reverse: { label: "Rakip Ara", color: "from-red-500 to-rose-400", icon: TrendingUp },
-  trends: { label: "Trendler", color: "from-green-500 to-emerald-400", icon: BarChart3 },
+// ── SVG Icons ────────────────────────────────────────────────────────────────
+
+const IcoChart = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+    <rect x="1" y="7" width="3" height="8" rx=".5" fill="currentColor"/>
+    <rect x="6.5" y="4" width="3" height="11" rx=".5" fill="currentColor"/>
+    <rect x="12" y="1" width="3" height="14" rx=".5" fill="currentColor"/>
+  </svg>
+);
+const IcoPerson = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+    <circle cx="8" cy="5" r="3" stroke="currentColor" strokeWidth="1.5"/>
+    <path d="M2.5 14.5c0-3 2.5-5 5.5-5s5.5 2 5.5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+  </svg>
+);
+const IcoDiamond = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+    <path d="M8 1.5L13.5 8 8 14.5 2.5 8z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+  </svg>
+);
+const IcoEnvelope = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+    <rect x="1.5" y="3.5" width="13" height="9" rx="1" stroke="currentColor" strokeWidth="1.5"/>
+    <path d="M1.5 5.5l6.5 4 6.5-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+  </svg>
+);
+const IcoSearch = () => (
+  <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
+    <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.5"/>
+    <path d="M11 11l3.5 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+  </svg>
+);
+const IcoLightning = () => (
+  <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
+    <path d="M9 1.5L3.5 9H8l-1.5 5.5 7.5-9H10z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+  </svg>
+);
+const IcoNetwork = () => (
+  <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
+    <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.5"/>
+    <circle cx="2.5" cy="2.5" r="1.5" stroke="currentColor" strokeWidth="1.25"/>
+    <circle cx="13.5" cy="2.5" r="1.5" stroke="currentColor" strokeWidth="1.25"/>
+    <circle cx="2.5" cy="13.5" r="1.5" stroke="currentColor" strokeWidth="1.25"/>
+    <circle cx="13.5" cy="13.5" r="1.5" stroke="currentColor" strokeWidth="1.25"/>
+    <path d="M4 4L6.3 6.3M12 4L9.7 6.3M4 12L6.3 9.7M12 12L9.7 9.7" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+  </svg>
+);
+const IcoEye = ({ size = 15 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
+    <path d="M1 8s2.5-5.5 7-5.5S15 8 15 8s-2.5 5.5-7 5.5S1 8 1 8z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+    <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.5"/>
+  </svg>
+);
+const IcoTrend = ({ size = 15 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
+    <polyline points="1.5,13 5,8.5 8.5,10.5 14.5,3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+    <polyline points="10.5,3.5 14.5,3.5 14.5,7.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+const IcoBook = ({ size = 15 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
+    <path d="M3 2.5h7a1 1 0 011 1v9a1 1 0 01-1 1H3a1 1 0 01-1-1v-9a1 1 0 011-1z" stroke="currentColor" strokeWidth="1.5"/>
+    <line x1="2" y1="7" x2="11" y2="7" stroke="currentColor" strokeWidth="1.5"/>
+    <path d="M11 3.5h1a1 1 0 011 1v8a1 1 0 01-1 1h-1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+  </svg>
+);
+const IcoWrench = ({ size = 15 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
+    <path d="M11 2a3.5 3.5 0 00-3.3 4.7L2 13.3l.7.7 5.6-5.7A3.5 3.5 0 1011 2z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+    <circle cx="11" cy="5.5" r="1.5" stroke="currentColor" strokeWidth="1.2"/>
+  </svg>
+);
+
+// ── Mode config ───────────────────────────────────────────────────────────────
+
+const MODE_MAP: Record<string, { label: string; Icon: React.FC<{ size?: number }> }> = {
+  discover:    { label: "Scout",        Icon: IcoEye     },
+  deep:        { label: "Analyst",      Icon: IcoTrend   },
+  orchestrate: { label: "Orchestrator", Icon: ({ size }) => <IcoNetwork /> },
+  reverse:     { label: "Engineer",     Icon: IcoWrench  },
+  trends:      { label: "Researcher",   Icon: IcoBook    },
 };
 
+// ── Count-up hook ─────────────────────────────────────────────────────────────
+
+function useCountUp(target: number, duration = 1400) {
+  const [val, setVal] = useState(0);
+  const started = useRef(false);
+  useEffect(() => {
+    if (target === 0 || started.current) return;
+    started.current = true;
+    const t0 = Date.now();
+    const tick = () => {
+      const p = Math.min((Date.now() - t0) / duration, 1);
+      const e = 1 - Math.pow(1 - p, 3);
+      setVal(Math.round(target * e));
+      if (p < 1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }, [target, duration]);
+  return val;
+}
+
+// ── KPI Card ──────────────────────────────────────────────────────────────────
+
+function KpiCard({ label, value, desc, icon, sparkPoints }: {
+  label: string; value: number; desc: string;
+  icon: React.ReactNode; sparkPoints: string;
+}) {
+  const displayed = useCountUp(value, 1400);
+  return (
+    <div style={{ background: "#0F1320", border: "1px solid rgba(255,255,255,.05)", borderRadius: 12, padding: 20, transition: "border-color .15s, background .15s, transform .15s", cursor: "default" }}
+      onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(255,255,255,.08)"; (e.currentTarget as HTMLDivElement).style.background = "#161C2D"; (e.currentTarget as HTMLDivElement).style.transform = "translateY(-1px)"; }}
+      onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(255,255,255,.05)"; (e.currentTarget as HTMLDivElement).style.background = "#0F1320"; (e.currentTarget as HTMLDivElement).style.transform = "translateY(0)"; }}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+        <span style={{ fontSize: 10, fontWeight: 500, textTransform: "uppercase", letterSpacing: ".12em", color: "#3F4B5C" }}>{label}</span>
+        <span style={{ color: "#3F4B5C" }}>{icon}</span>
+      </div>
+      <div style={{ fontSize: 32, fontWeight: 600, color: "#F1F5F9", letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums", lineHeight: 1, marginBottom: 5 }}>
+        {displayed.toLocaleString("tr-TR")}
+      </div>
+      <div style={{ fontSize: 12, color: "#3F4B5C", marginBottom: 0 }}>{desc}</div>
+      <svg viewBox="0 0 100 20" preserveAspectRatio="none" fill="none"
+        style={{ display: "block", width: "calc(100% + 40px)", height: 20, margin: "14px -20px -20px", borderRadius: "0 0 11px 11px" }}>
+        <polyline points={sparkPoints} stroke="rgba(139,92,246,.4)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+      </svg>
+    </div>
+  );
+}
+
+// ── Score color ───────────────────────────────────────────────────────────────
+
+function scoreColor(s: number) {
+  if (s >= 70) return "#10B981";
+  if (s >= 45) return "#F59E0B";
+  return "#EF4444";
+}
+
+// ── Strip markdown preview ────────────────────────────────────────────────────
+
+function cleanPreview(raw: string): string {
+  return raw
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/#{1,6}\s/g, "")
+    .replace(/\[.*?\]\(.*?\)/g, "")
+    .replace(/`/g, "")
+    .replace(/\n+/g, " ")
+    .trim()
+    .slice(0, 100);
+}
+
+// ── Main Page ─────────────────────────────────────────────────────────────────
+
 export default function DashboardPage() {
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [recentScans, setRecentScans] = useState<ScanRecord[]>([]);
-  const [loading, setLoading] = useState(true);
   const router = useRouter();
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [scans, setScans]   = useState<ScanRecord[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchDashboard();
+    fetch("/api/dashboard")
+      .then(r => r.json())
+      .then(d => { setStats(d.stats); setScans(d.recent_scans || []); })
+      .catch(e => console.error("Dashboard:", e))
+      .finally(() => setLoading(false));
   }, []);
 
-  async function fetchDashboard() {
-    try {
-      const res = await fetch('/api/dashboard');
-      const data = await res.json();
-      setStats(data.stats);
-      setRecentScans(data.recent_scans || []);
-    } catch (e) {
-      console.error("Dashboard hatası:", e);
-    } finally {
-      setLoading(false);
-    }
-  }
+  const s = stats;
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <Loader2 className="w-8 h-8 animate-spin text-purple-500" />
-          <p className="text-muted-foreground animate-pulse">Dashboard yükleniyor...</p>
-        </div>
-      </div>
-    );
-  }
-
-  const statCards = [
-    {
-      title: "Toplam Tarama",
-      value: stats?.total_scans || 0,
-      icon: BarChart3,
-      gradient: "from-blue-600 to-blue-400",
-      desc: `${stats?.completed || 0} tamamlandı`,
-    },
-    {
-      title: "Bulunan Lead'ler",
-      value: stats?.total_leads || 0,
-      icon: Users,
-      gradient: "from-purple-600 to-violet-400",
-      desc: "Hazır alıcılar",
-    },
-    {
-      title: "İş Fikirleri",
-      value: stats?.total_angles || 0,
-      icon: Sparkles,
-      gradient: "from-amber-500 to-orange-400",
-      desc: "Üretilen hipotezler",
-    },
-    {
-      title: "Waitlist Kayıtları",
-      value: stats?.total_emails || 0,
-      icon: Mail,
-      gradient: "from-green-500 to-emerald-400",
-      desc: `${stats?.waitlist_count || 0} aktif waitlist`,
-    },
+  // Sparkline paths — each card has a different trend
+  const sparks = [
+    "0,16 12,14 25,17 37,12 50,15 63,10 75,13 87,8 100,6",
+    "0,18 12,16 25,15 37,17 50,13 63,11 75,9 87,7 100,5",
+    "0,15 12,17 25,11 37,14 50,9 63,13 75,8 87,11 100,6",
+    "0,19 12,17 25,18 37,15 50,16 63,12 75,10 87,7 100,4",
   ];
 
-  const quickActions = [
-    { label: "Yeni Keşfet Taraması", mode: "discover", icon: Search, gradient: "from-blue-600 to-cyan-500" },
-    { label: "Derin Analiz Başlat", mode: "deep", icon: Cpu, gradient: "from-purple-600 to-violet-500" },
-    { label: "Orkestratör Çalıştır", mode: "orchestrate", icon: Zap, gradient: "from-amber-500 to-orange-500" },
-  ];
+  const modeCounts = s ? [
+    { key: "discover",    count: s.modes.discover,    Icon: IcoEye,    name: "Scout"        },
+    { key: "deep",        count: s.modes.deep,        Icon: IcoTrend,  name: "Analyst"      },
+    { key: "trends",      count: s.modes.trends,      Icon: IcoBook,   name: "Researcher"   },
+    { key: "reverse",     count: s.modes.reverse,     Icon: IcoWrench, name: "Engineer"     },
+    { key: "orchestrate", count: s.modes.orchestrate, Icon: IcoNetwork, name: "Orchestrator" },
+  ] : [];
+  const topMode = modeCounts.length ? modeCounts.reduce((a, b) => a.count > b.count ? a : b).key : "";
 
+  // CSS vars inlined via style tag
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <div className="border-b border-white/5 bg-gradient-to-r from-background via-purple-950/10 to-background">
-        <div className="max-w-7xl mx-auto px-6 py-8">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold bg-gradient-to-r from-white to-white/60 bg-clip-text text-transparent">
-                Dashboard
-              </h1>
-              <p className="text-muted-foreground mt-1">Venorly — Genel bakış</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => router.push("/leads")}
-                className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-muted-foreground hover:bg-white/10 hover:text-white transition-all flex items-center gap-1.5"
-              >
-                <Target className="w-3.5 h-3.5" /> Lead'ler
-              </button>
-              <button
-                onClick={() => router.push("/alerts")}
-                className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-muted-foreground hover:bg-white/10 hover:text-white transition-all flex items-center gap-1.5"
-              >
-                <Bell className="w-3.5 h-3.5" /> Alarmlar
-              </button>
-              <button
-                onClick={() => router.push("/pricing")}
-                className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-muted-foreground hover:bg-white/10 hover:text-white transition-all flex items-center gap-1.5"
-              >
-                <CreditCard className="w-3.5 h-3.5" /> Fiyatlandırma
-              </button>
-              <button
-                onClick={() => router.push("/")}
-                className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-muted-foreground hover:bg-white/10 hover:text-white transition-all"
-              >
-                ← Ana Sayfa
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
+    <>
+      <style>{`
+        .db-nav-link { padding:6px 11px;font-size:13px;font-weight:400;color:#3F4B5C;text-decoration:none;border-radius:6px;transition:color .12s;cursor:pointer;border:none;background:none;font-family:inherit; }
+        .db-nav-link:hover { color:#64748B; }
+        .db-nav-link.active { color:#F1F5F9;font-weight:500; }
+        .db-card { background:#0F1320;border:1px solid rgba(255,255,255,.05);border-radius:12px;transition:border-color .15s,background .15s,transform .15s; }
+        .db-card:hover { border-color:rgba(255,255,255,.08);background:#161C2D;transform:translateY(-1px); }
+        .db-qa:hover { border-color:rgba(139,92,246,.25) !important;transform:translateY(-1px); }
+        .db-qa:hover .db-qa-arrow { transform:translateX(2px);color:#64748B; }
+        .db-qa:hover .db-ico { color:#8B5CF6; }
+        .db-scan-row { display:flex;align-items:center;gap:14px;padding:0 18px;height:52px;background:#0F1320;border-bottom:1px solid rgba(255,255,255,.04);transition:background .12s; }
+        .db-scan-row:last-child { border-bottom:none; }
+        .db-scan-row:hover { background:#161C2D; }
+        .db-pill { display:inline-flex;align-items:center;padding:1px 7px;border-radius:100px;font-size:10px;font-weight:500;line-height:1.6;white-space:nowrap;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);color:#64748B;transition:border-color .15s,color .15s; }
+        .db-pill:hover { border-color:rgba(139,92,246,.3);color:#A78BFA; }
+        .db-eye { font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:.12em;color:#3F4B5C; }
+        .db-ico { color:#3F4B5C;transition:color .15s; }
+        .db-back { font-size:12px;color:#3F4B5C;text-decoration:none;transition:color .12s;white-space:nowrap;margin-top:4px; }
+        .db-back:hover { color:#64748B; }
+      `}</style>
 
-      <div className="max-w-7xl mx-auto px-6 py-8 space-y-8">
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {statCards.map((card) => (
-            <div
-              key={card.title}
-              className="relative overflow-hidden rounded-xl bg-card border border-white/5 p-5 group hover:border-white/10 transition-all"
-            >
-              <div className={`absolute top-0 right-0 w-24 h-24 bg-gradient-to-br ${card.gradient} opacity-10 rounded-full blur-2xl group-hover:opacity-20 transition-opacity`} />
-              <div className="relative z-10 flex items-start justify-between">
-                <div>
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide">{card.title}</p>
-                  <p className="text-3xl font-bold mt-1 text-white">{card.value}</p>
-                  <p className="text-xs text-muted-foreground mt-1">{card.desc}</p>
-                </div>
-                <div className={`p-2.5 rounded-lg bg-gradient-to-br ${card.gradient} bg-opacity-20`}>
-                  <card.icon className="w-5 h-5 text-white" />
+      <div style={{ background: "#080B14", color: "#64748B", fontFamily: "Inter, -apple-system, sans-serif", fontSize: 14, lineHeight: 1.6, WebkitFontSmoothing: "antialiased", minHeight: "100vh" }}>
+
+        {/* NAV */}
+        <nav style={{ position: "sticky", top: 0, zIndex: 100, height: 48, background: "#080B14", borderBottom: "1px solid rgba(255,255,255,.05)", display: "flex", alignItems: "center", padding: "0 24px", gap: 0 }}>
+          <Link href="/" style={{ fontSize: 14, fontWeight: 700, color: "#F1F5F9", letterSpacing: "-0.02em", textDecoration: "none", flexShrink: 0 }}>Venorly</Link>
+          <div style={{ width: 1, height: 16, background: "rgba(255,255,255,.08)", margin: "0 20px", flexShrink: 0 }} />
+          <div style={{ display: "flex", alignItems: "center" }}>
+            <button className="db-nav-link active">Dashboard</button>
+            <Link href="/gallery" className="db-nav-link">Taramalar</Link>
+            <Link href="/" className="db-nav-link">Keşfet</Link>
+          </div>
+          <div style={{ marginLeft: "auto" }}>
+            <div style={{ width: 28, height: 28, borderRadius: "50%", background: "#1E2535", border: "1px solid rgba(255,255,255,.08)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 600, color: "#3F4B5C", cursor: "pointer" }}>U</div>
+          </div>
+        </nav>
+
+        {/* PAGE */}
+        <div style={{ maxWidth: 960, margin: "0 auto", padding: "40px 24px 80px" }}>
+
+          {/* Header */}
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 40 }}>
+            <div>
+              <h1 style={{ fontSize: 24, fontWeight: 600, color: "#F1F5F9", letterSpacing: "-0.025em", lineHeight: 1.15 }}>Dashboard</h1>
+              <p style={{ fontSize: 13, color: "#3F4B5C", marginTop: 4 }}>Venorly — Genel Bakış</p>
+            </div>
+            <Link href="/" className="db-back">← Ana Sayfa</Link>
+          </div>
+
+          {loading ? (
+            <div style={{ textAlign: "center", padding: "80px 0", color: "#3F4B5C" }}>Yükleniyor…</div>
+          ) : (
+            <>
+              {/* KPI Grid */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12 }}>
+                <KpiCard label="Toplam Tarama"    value={s?.total_scans  ?? 0} desc={`${s?.completed ?? 0} tamamlandı`}    icon={<IcoChart />}    sparkPoints={sparks[0]} />
+                <KpiCard label="Bulunan Lead'ler" value={s?.total_leads  ?? 0} desc="Toplam potansiyel"                    icon={<IcoPerson />}   sparkPoints={sparks[1]} />
+                <KpiCard label="İş Fikirleri"     value={s?.total_angles ?? 0} desc="Doğrulamaya hazır"                   icon={<IcoDiamond />}  sparkPoints={sparks[2]} />
+                <KpiCard label="Waitlist Kayıtları" value={s?.total_emails ?? 0} desc={`${s?.waitlist_count ?? 0} aktif`} icon={<IcoEnvelope />} sparkPoints={sparks[3]} />
+              </div>
+
+              {/* Quick Actions */}
+              <div style={{ marginTop: 40 }}>
+                <div style={{ marginBottom: 16 }}><span className="db-eye">Hızlı İşlemler</span></div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12 }}>
+                  {[
+                    { name: "Yeni Keşfet",  desc: "Pazar segmentleri tara",  Icon: IcoSearch,    href: "/?mode=discover"    },
+                    { name: "Derin Analiz", desc: "Tam fizibilite raporu",   Icon: IcoLightning, href: "/?mode=deep"        },
+                    { name: "Orkestratör",  desc: "Otonom araştırma ajanı", Icon: IcoNetwork,   href: "/?mode=orchestrate" },
+                  ].map(a => (
+                    <Link key={a.name} href={a.href} className="db-card db-qa" style={{ padding: 20, display: "flex", alignItems: "center", gap: 14, textDecoration: "none" }}>
+                      <span className="db-ico"><a.Icon /></span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 14, fontWeight: 500, color: "#F1F5F9", marginBottom: 2 }}>{a.name}</div>
+                        <div style={{ fontSize: 12, color: "#3F4B5C" }}>{a.desc}</div>
+                      </div>
+                      <span className="db-qa-arrow" style={{ color: "#3F4B5C", fontSize: 14, transition: "transform .15s, color .15s", flexShrink: 0 }}>→</span>
+                    </Link>
+                  ))}
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
 
-        {/* Quick Actions */}
-        <div>
-          <h2 className="text-lg font-semibold text-white mb-4">Hızlı İşlemler</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            {quickActions.map((action) => (
-              <button
-                key={action.mode}
-                onClick={() => router.push(`/?mode=${action.mode}`)}
-                className={`flex items-center gap-3 p-4 rounded-xl bg-gradient-to-br ${action.gradient} bg-opacity-10 border border-white/5 hover:border-white/20 hover:scale-[1.02] transition-all group`}
-                style={{ background: `linear-gradient(135deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01))` }}
-              >
-                <div className={`p-2 rounded-lg bg-gradient-to-br ${action.gradient}`}>
-                  <action.icon className="w-4 h-4 text-white" />
+              {/* Mode Distribution */}
+              <div style={{ marginTop: 40 }}>
+                <div style={{ marginBottom: 16 }}><span className="db-eye">Mod Dağılımı</span></div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 10 }}>
+                  {modeCounts.map(({ key, count, Icon, name }) => (
+                    <div key={key} className="db-card" style={{ padding: "18px 16px", borderColor: key === topMode ? "rgba(139,92,246,.2)" : undefined }}>
+                      <div className="db-ico" style={{ marginBottom: 10 }}><Icon size={15} /></div>
+                      <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums", lineHeight: 1, color: key === topMode ? "#8B5CF6" : "#F1F5F9" }}>{count}</div>
+                      <div style={{ fontSize: 11, color: "#3F4B5C", marginTop: 3 }}>{name}</div>
+                    </div>
+                  ))}
                 </div>
-                <span className="text-sm text-white font-medium">{action.label}</span>
-                <ArrowRight className="w-4 h-4 text-muted-foreground ml-auto group-hover:text-white group-hover:translate-x-1 transition-all" />
-              </button>
-            ))}
-          </div>
-        </div>
+              </div>
 
-        {/* Scan Mode Distribution */}
-        {stats && (stats.modes.discover + stats.modes.deep + stats.modes.orchestrate + stats.modes.reverse + stats.modes.trends > 0) && (
-          <div>
-            <h2 className="text-lg font-semibold text-white mb-4">Mod Dağılımı</h2>
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-              {Object.entries(stats.modes).map(([mode, count]) => {
-                const cfg = MODE_CONFIG[mode];
-                if (!cfg) return null;
-                return (
-                  <div key={mode} className="rounded-xl bg-card border border-white/5 p-4 text-center">
-                    <div className={`inline-flex p-2 rounded-lg bg-gradient-to-br ${cfg.color} mb-2`}>
-                      <cfg.icon className="w-4 h-4 text-white" />
-                    </div>
-                    <p className="text-2xl font-bold text-white">{count}</p>
-                    <p className="text-xs text-muted-foreground">{cfg.label}</p>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
+              {/* Recent Scans */}
+              <div style={{ marginTop: 40 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+                  <span className="db-eye">Son Taramalar</span>
+                  <Link href="/gallery" style={{ fontSize: 12, color: "#3F4B5C", textDecoration: "none", transition: "color .12s" }}
+                    onMouseEnter={e => (e.currentTarget.style.color = "#64748B")}
+                    onMouseLeave={e => (e.currentTarget.style.color = "#3F4B5C")}>
+                    Tümünü Gör →
+                  </Link>
+                </div>
 
-        {/* Recent Scans */}
-        <div>
-          <h2 className="text-lg font-semibold text-white mb-4">Son Taramalar</h2>
-          {recentScans.length === 0 ? (
-            <div className="rounded-xl bg-card border border-white/5 p-12 text-center">
-              <Search className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-              <p className="text-muted-foreground">Henüz tarama yapılmadı.</p>
-              <p className="text-xs text-muted-foreground mt-1">Ana sayfadan bir tarama başlatarak burada geçmişinizi görün.</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {recentScans.map((scan) => {
-                const cfg = MODE_CONFIG[scan.mode] || MODE_CONFIG.discover;
-                return (
-                  <div
-                    key={scan.id}
-                    className="flex items-center gap-4 rounded-xl bg-card border border-white/5 p-4 hover:border-white/10 transition-all group cursor-pointer"
-                  >
-                    <div className={`p-2.5 rounded-lg bg-gradient-to-br ${cfg.color} shrink-0`}>
-                      <cfg.icon className="w-4 h-4 text-white" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-medium text-white truncate">{scan.category || "Genel Tarama"}</p>
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-muted-foreground shrink-0">
-                          {cfg.label}
-                        </span>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                        {scan.report_preview || "Rapor bekleniyor..."}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-3 shrink-0">
-                      {scan.leads_count > 0 && (
-                        <span className="text-xs text-muted-foreground">
-                          {scan.leads_count} lead
-                        </span>
-                      )}
-                      {scan.status === "completed" && (
-                        <a
-                          href={`/api/scans/${scan.id}/pdf`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          title="PDF İndir"
-                          className="p-1.5 rounded-lg text-muted-foreground hover:text-white hover:bg-white/10 transition-all opacity-0 group-hover:opacity-100"
-                        >
-                          <FileDown className="w-4 h-4" />
-                        </a>
-                      )}
-                      <div className="flex items-center gap-1.5">
-                        {scan.status === "completed" && <CheckCircle2 className="w-4 h-4 text-green-400" />}
-                        {scan.status === "running" && <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />}
-                        {scan.status === "failed" && <XCircle className="w-4 h-4 text-red-400" />}
-                      </div>
-                      <span className="text-xs text-muted-foreground whitespace-nowrap">
-                        {new Date(scan.created_at).toLocaleDateString("tr-TR", { day: "numeric", month: "short" })}
-                      </span>
-                    </div>
+                {scans.length === 0 ? (
+                  <div style={{ background: "#0F1320", border: "1px solid rgba(255,255,255,.05)", borderRadius: 12, padding: "48px 24px", textAlign: "center", color: "#3F4B5C", fontSize: 13 }}>
+                    Henüz tarama yapılmadı. Ana sayfadan bir tarama başlat.
                   </div>
-                );
-              })}
-            </div>
+                ) : (
+                  <div style={{ borderRadius: 12, overflow: "hidden", border: "1px solid rgba(255,255,255,.05)" }}>
+                    {scans.map(scan => {
+                      const cfg = MODE_MAP[scan.mode] ?? MODE_MAP.discover;
+                      const preview = cleanPreview(scan.report_preview || "");
+                      const score = scan.confidence_score;
+                      const dateStr = new Date(scan.created_at).toLocaleDateString("tr-TR", { day: "numeric", month: "short", year: "numeric" });
+                      return (
+                        <div key={scan.id} className="db-scan-row" onClick={() => router.push(`/`)}>
+                          {/* Mode icon */}
+                          <div style={{ width: 32, height: 32, borderRadius: 8, background: "#080B14", border: "1px solid rgba(255,255,255,.05)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "#3F4B5C" }}>
+                            <cfg.Icon size={14} />
+                          </div>
+                          {/* Category */}
+                          <span style={{ fontSize: 14, fontWeight: 500, color: "#F1F5F9", whiteSpace: "nowrap", flexShrink: 0 }}>
+                            {scan.category || "Genel Tarama"}
+                          </span>
+                          {/* Dot separator */}
+                          <span style={{ width: 4, height: 4, borderRadius: "50%", background: "rgba(255,255,255,.08)", flexShrink: 0 }} />
+                          {/* Badge */}
+                          <span className="db-pill" style={{ flexShrink: 0 }}>{cfg.label}</span>
+                          {/* Preview */}
+                          <span style={{ fontSize: 13, color: "#64748B", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1, minWidth: 0 }}>
+                            {preview || "Rapor bekleniyor…"}
+                          </span>
+                          {/* Score */}
+                          {score != null ? (
+                            <span style={{ display: "flex", alignItems: "center", gap: 7, flexShrink: 0 }}>
+                              <span style={{ width: 3, height: 16, borderRadius: 1.5, background: scoreColor(score), flexShrink: 0 }} />
+                              <span style={{ fontSize: 14, fontWeight: 600, color: "#F1F5F9", fontVariantNumeric: "tabular-nums" }}>{score}</span>
+                            </span>
+                          ) : (
+                            <span style={{ width: 3, height: 16, borderRadius: 1.5, background: scan.status === "completed" ? "#10B981" : scan.status === "running" ? "rgba(139,92,246,.5)" : "#EF4444", flexShrink: 0 }} />
+                          )}
+                          {/* Date */}
+                          <span style={{ fontSize: 12, color: "#3F4B5C", flexShrink: 0, minWidth: 72, textAlign: "right" }}>{dateStr}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+            </>
           )}
         </div>
-
-        {/* Footer */}
-        <div className="text-center py-6">
-          <p className="text-xs text-muted-foreground">
-            Venorly
-          </p>
-        </div>
       </div>
-    </div>
+    </>
   );
 }
