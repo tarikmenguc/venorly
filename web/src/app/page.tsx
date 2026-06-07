@@ -10,6 +10,7 @@ import remarkGfm from "remark-gfm";
 import { ChatPanel } from "@/components/ui/chat-panel";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
+import { ReportDisplay, FeasibilityReport } from "@/components/ReportDisplay";
 
 const WORDS = ["Micro-SaaS", "AI App", "Deep Tech", "Unicorn"];
 
@@ -45,6 +46,7 @@ export default function HomePage() {
   const [leads, setLeads]             = useState<any[]>([]);
   const [scanId, setScanId]           = useState<string | null>(null);
   const [isCreatingWaitlist, setIsCreatingWaitlist] = useState(false);
+  const [reportJson, setReportJson] = useState<FeasibilityReport | null>(null);
 
   const pTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -63,6 +65,7 @@ export default function HomePage() {
     setCurrentNode("");
     setPipelineStep(0);
     setScanId(null);
+    setReportJson(null);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
 
@@ -129,6 +132,7 @@ export default function HomePage() {
                 const out = data.state.investment_memo || data.state.final_report;
                 if (out) setReport(out);
                 if (data.state.buyer_leads?.length > 0) setLeads(data.state.buyer_leads);
+                if (data.state.report_json) setReportJson(data.state.report_json as FeasibilityReport);
               }
             }
           } catch {}
@@ -316,22 +320,33 @@ export default function HomePage() {
               </div>
 
               {/* Report */}
-              {report && (
-                <div className="vn-glass-card">
-                  <div className="vn-card-head">
+              {(reportJson || report) && (
+                <div>
+                  {/* Status / title bar */}
+                  <div className="vn-card-head" style={{ background: "rgba(17,12,29,.6)", backdropFilter: "blur(20px)", border: "1px solid rgba(255,255,255,.06)", borderRadius: 16, padding: "16px 22px", marginBottom: 20 }}>
                     <div>
-                      <div className="vn-card-title">Pazar Analiz Raporu — {category}</div>
+                      <div className="vn-card-title">{reportJson?.idea_title ?? `Pazar Analiz Raporu — ${category}`}</div>
                       <div className="vn-card-meta">
                         13 AI Ajan · {new Date().toLocaleDateString("tr-TR", { month: "long", year: "numeric" })}
                       </div>
                     </div>
                     {modePill}
                   </div>
-                  <div className="vn-card-body">
-                    <div className="prose prose-invert prose-primary">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{report}</ReactMarkdown>
+                  {reportJson ? (
+                    <ReportDisplay
+                      reportJson={reportJson}
+                      onCreateWaitlist={handleCreateWaitlist}
+                      isCreatingWaitlist={isCreatingWaitlist}
+                    />
+                  ) : (
+                    <div className="vn-glass-card">
+                      <div className="vn-card-body">
+                        <div className="prose prose-invert prose-primary">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{report}</ReactMarkdown>
+                        </div>
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
               )}
 
@@ -376,8 +391,8 @@ export default function HomePage() {
                 </div>
               )}
 
-              {/* CTA */}
-              {report && (
+              {/* CTA — only shown when falling back to markdown (no reportJson) */}
+              {!reportJson && report && (
                 <div className="vn-cta-card">
                   <div>
                     <div className="vn-cta-title">Bu Fikri Doğrulamak İster Misin?</div>
