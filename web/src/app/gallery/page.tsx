@@ -1,7 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
+import { useState, useMemo, useEffect } from "react";
+import { useAuth } from "@/context/AuthContext";
+import { ScanDB } from "@/lib/scan-db";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -18,46 +21,46 @@ interface IdeaCard {
   icon: "video" | "image" | "mic" | "paint" | "text";
 }
 
-// ── Static data (replace with API call when /api/gallery is ready) ────────────
+// ── Helpers: map API/Supabase record → IdeaCard ─────────────────────────────
 
-const IDEAS: IdeaCard[] = [
-  {
-    id: "1", cat: "video", score: 65, week: 22, icon: "video",
-    title: "Kısa Video İçerik Üreticisi",
-    desc: "Sosyal medya platformları için metin girdisinden otomatik kısa video oluşturan SaaS aracı. Reels, TikTok ve YouTube Shorts formatlarını destekler.",
-    tags: ["B2C", "SaaS", "AI"], footLabel: "Video Üretim", weekLabel: "Hafta 22 · 2026",
-  },
-  {
-    id: "2", cat: "gorsel", score: 65, week: 22, icon: "image",
-    title: "E-ticaret Ürün Görseli Üretici",
-    desc: "E-ticaret satıcıları için ürün fotoğrafını profesyonel arka planlarla otomatik düzenleyen ve varyant oluşturan görsel AI aracı.",
-    tags: ["B2B", "E-ticaret", "API"], footLabel: "Görsel Üretim", weekLabel: "Hafta 22 · 2026",
-  },
-  {
-    id: "3", cat: "ses", score: 65, week: 22, icon: "mic",
-    title: "Podcast Transkripsiyon ve Özet Aracı",
-    desc: "Podcast ve toplantı kayıtlarını otomatik transkripsiyona çeviren, bölümlere ayıran ve SEO dostu özet oluşturan SaaS platformu.",
-    tags: ["B2B", "API", "SaaS"], footLabel: "Ses İşleme", weekLabel: "Hafta 22 · 2026",
-  },
-  {
-    id: "4", cat: "video", score: 65, week: 21, icon: "video",
-    title: "AI Destekli Video Alt Yazı ve Çeviri",
-    desc: "Video içeriklerine otomatik alt yazı ekleyen, 40+ dile çeviren ve marka renkleriyle özelleştirilebilen video işleme API'si.",
-    tags: ["API", "SaaS", "Çeviri"], footLabel: "Video Üretim", weekLabel: "Hafta 21 · 2026",
-  },
-  {
-    id: "5", cat: "gorsel", score: 65, week: 21, icon: "paint",
-    title: "KOBİ'ler için AI Logo ve Marka Kiti",
-    desc: "Küçük işletmeler için sektör ve değer önerisi girdisinden logo, renk paleti ve marka kılavuzu otomatik üreten tasarım aracı.",
-    tags: ["B2B", "Tasarım", "No-code"], footLabel: "Görsel Üretim", weekLabel: "Hafta 21 · 2026",
-  },
-  {
-    id: "6", cat: "metin", score: 65, week: 21, icon: "text",
-    title: "SEO Odaklı Blog İçerik Otomasyonu",
-    desc: "Anahtar kelime analizinden taslak hazırlamaya kadar tüm içerik üretim sürecini otomatikleştiren, CMS entegrasyonlu içerik SaaS platformu.",
-    tags: ["B2B", "SEO", "SaaS"], footLabel: "Metin Üretim", weekLabel: "Hafta 21 · 2026",
-  },
-];
+function getISOWeek(d: Date): number {
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  return Math.ceil((((date.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+}
+
+function scanToCard(scan: Record<string, unknown>): IdeaCard {
+  const cat = (() => {
+    const c = String(scan.category ?? "").toLowerCase();
+    if (c.includes("video") || c.includes("film")) return "video" as const;
+    if (c.includes("gorsel") || c.includes("görsel") || c.includes("resim") || c.includes("foto") || c.includes("image")) return "gorsel" as const;
+    if (c.includes("ses") || c.includes("audio") || c.includes("podcast") || c.includes("müzik")) return "ses" as const;
+    return "metin" as const;
+  })();
+  const iconMap: Record<IdeaCard["cat"], IdeaCard["icon"]> = { video: "video", gorsel: "image", ses: "mic", metin: "text" };
+  const footMap: Record<IdeaCard["cat"], string> = { video: "Video Üretim", gorsel: "Görsel Üretim", ses: "Ses İşleme", metin: "Metin Üretim" };
+  const date  = new Date(String(scan.created_at ?? Date.now()));
+  const week  = getISOWeek(date);
+  const year  = date.getFullYear();
+  const score = typeof scan.confidence_index === "number" ? Math.round((scan.confidence_index as number) * 100)
+              : typeof scan.score            === "number" ? Math.round(scan.score as number)
+              : 65;
+  const title = String(scan.title ?? scan.category ?? "Analiz Sonucu");
+  const desc  = String(scan.report_preview ?? scan.desc ?? "AI analizi tamamlandı.");
+  const mode  = String(scan.mode ?? "discover");
+  const modeTag = ({ deep: "Derin", trends: "Trend", reverse: "Rakip", orchestrate: "Orkestratör" } as Record<string,string>)[mode] ?? "Hızlı";
+  return {
+    id: String(scan.id ?? ""),
+    cat, icon: iconMap[cat],
+    score, week,
+    title: title.length > 60 ? title.slice(0, 57) + "…" : title,
+    desc:  desc.length  > 160 ? desc.slice(0, 157) + "…" : desc,
+    tags: [modeTag, "AI", "SaaS"],
+    footLabel: footMap[cat],
+    weekLabel: `Hafta ${week} · ${year}`,
+  };
+}
 
 // ── Score pill class ───────────────────────────────────────────────────────────
 
@@ -111,18 +114,51 @@ function Icon({ name }: { name: IdeaCard["icon"] }) {
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function GalleryPage() {
-  const [activeCat, setActiveCat]   = useState<string>("all");
-  const [activeSort, setActiveSort] = useState<"score" | "date">("score");
+  const { user } = useAuth();
+  const router   = useRouter();
+  const [ideas, setIdeas]             = useState<IdeaCard[]>([]);
+  const [loadingData, setLoadingData]   = useState(true);
+  const [activeCat, setActiveCat]       = useState<string>("all");
+  const [activeSort, setActiveSort]     = useState<"score" | "date">("score");
+
+  // Fetch gallery: try FastAPI /api/gallery, fallback to Supabase recent scans
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const gallery = await ScanDB.getGalleryScans(1, 12, "", "score");
+        if (!cancelled && gallery.items.length > 0) {
+          setIdeas(gallery.items.map(scanToCard));
+          if (!cancelled) setLoadingData(false);
+          return;
+        }
+      } catch { /* gallery endpoint not yet available */ }
+      try {
+        const recent = await ScanDB.getRecent(12);
+        if (!cancelled) {
+          setIdeas(
+            recent
+              .filter(s => s.status === "completed")
+              .map(s => scanToCard(s as unknown as Record<string, unknown>))
+          );
+        }
+      } catch { /* supabase unavailable */ }
+      if (!cancelled) setLoadingData(false);
+    }
+    load();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const filtered = useMemo(() => {
-    const f = activeCat === "all" ? IDEAS : IDEAS.filter(c => c.cat === activeCat);
+    const f = activeCat === "all" ? ideas : ideas.filter(c => c.cat === activeCat);
     return [...f].sort((a, b) =>
       activeSort === "score" ? b.score - a.score : b.week - a.week
     );
-  }, [activeCat, activeSort]);
+  }, [ideas, activeCat, activeSort]);
 
-  const avgScore = IDEAS.length ? Math.round(IDEAS.reduce((s, c) => s + c.score, 0) / IDEAS.length) : 0;
-  const best = [...IDEAS].sort((a, b) => b.score - a.score)[0]?.footLabel ?? "—";
+  const avgScore = ideas.length ? Math.round(ideas.reduce((s, c) => s + c.score, 0) / ideas.length) : 0;
+  const best = [...ideas].sort((a, b) => b.score - a.score)[0]?.footLabel ?? "—";
 
   return (
     <>
@@ -207,8 +243,19 @@ export default function GalleryPage() {
             <Link href="/" className="gl-nav-lnk">Keşfet</Link>
           </div>
           <div className="gl-nav-right">
-            <Link href="/" className="gl-btn-ghost-sm">Giriş Yap</Link>
-            <Link href="/" className="gl-btn-vi-sm">Başla</Link>
+            {user ? (
+              <div
+                onClick={() => router.push("/profile")}
+                style={{width:30,height:30,borderRadius:"50%",background:"#1E293B",border:"1px solid rgba(255,255,255,.08)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:600,color:"#94A3B8",cursor:"pointer"}}
+              >
+                {user.email?.charAt(0).toUpperCase() ?? "U"}
+              </div>
+            ) : (
+              <>
+                <Link href="/sign-in" className="gl-btn-ghost-sm">Giriş Yap</Link>
+                <Link href="/sign-up" className="gl-btn-vi-sm">Başla</Link>
+              </>
+            )}
           </div>
         </nav>
 
@@ -222,7 +269,7 @@ export default function GalleryPage() {
             <h1 className="gl-title">Galeri</h1>
             <p className="gl-sub">Yapay zeka tarafından analiz edilen en yüksek potansiyelli Micro-SaaS fırsatları.</p>
             <div className="gl-stats">
-              <span>{IDEAS.length} Fikir</span>
+              <span>{ideas.length} Fikir</span>
               <span className="gl-stats-dot" />
               <span>Ort. Puan: {avgScore}/100</span>
               <span className="gl-stats-dot" />
@@ -261,7 +308,9 @@ export default function GalleryPage() {
 
           {/* CARD GRID */}
           <div className="gl-grid">
-            {filtered.length === 0 ? (
+            {loadingData ? (
+              <div className="gl-empty">Yükleniyor…</div>
+            ) : filtered.length === 0 ? (
               <div className="gl-empty">Henüz fikir bulunamadı</div>
             ) : (
               filtered.map(card => (

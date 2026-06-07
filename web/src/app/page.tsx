@@ -4,7 +4,7 @@ export const dynamic = "force-dynamic";
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ChatPanel } from "@/components/ui/chat-panel";
@@ -33,7 +33,8 @@ type ModeKey = keyof typeof MODES;
 type AppState = "empty" | "loading" | "done";
 
 export default function HomePage() {
-  const router = useRouter();
+  const router      = useRouter();
+  const searchParams = useSearchParams();
   const { user } = useAuth();
 
   const [appState, setAppState]       = useState<AppState>("empty");
@@ -49,6 +50,16 @@ export default function HomePage() {
   const [reportJson, setReportJson] = useState<FeasibilityReport | null>(null);
 
   const pTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Sync mode from ?mode= query param on mount
+  useEffect(() => {
+    const modeMap: Record<string, ModeKey> = {
+      discover: "disc", deep: "deep", orchestrate: "orch", reverse: "comp", trends: "trnd",
+    };
+    const m = searchParams.get("mode");
+    if (m && modeMap[m]) setModeKey(modeMap[m]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Word rotation
   useEffect(() => {

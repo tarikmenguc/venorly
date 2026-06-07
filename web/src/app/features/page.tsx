@@ -1,11 +1,13 @@
-import Link from "next/link";
+"use client";
 
-export const metadata = {
-  title: "Venorly — AI ile Startup Fizibilite Analizi",
-  description: "13 aşamalı AI pipeline ile pazar büyüklüğünü, rekabeti ve teknik fizibiliteyi otomatik analiz edin.",
-};
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/context/AuthContext";
 
 export default function FeaturesPage() {
+  const { user } = useAuth();
+  const router   = useRouter();
+
   return (
     <>
       <style>{`
@@ -179,8 +181,19 @@ export default function FeaturesPage() {
             <Link href="/pricing" className="lp-nav-lnk">Fiyatlandırma</Link>
           </div>
           <div className="lp-nav-right">
-            <Link href="/" className="lp-btn-ghost-sm">Giriş Yap</Link>
-            <Link href="/" className="lp-btn-vi-sm">Başla</Link>
+            {user ? (
+              <div
+                onClick={() => router.push("/profile")}
+                style={{width:30,height:30,borderRadius:"50%",background:"#1E293B",border:"1px solid rgba(255,255,255,.08)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:600,color:"#94A3B8",cursor:"pointer"}}
+              >
+                {user.email?.charAt(0).toUpperCase() ?? "U"}
+              </div>
+            ) : (
+              <>
+                <Link href="/sign-in" className="lp-btn-ghost-sm">Giriş Yap</Link>
+                <Link href="/sign-up" className="lp-btn-vi-sm">Başla</Link>
+              </>
+            )}
           </div>
         </nav>
 
