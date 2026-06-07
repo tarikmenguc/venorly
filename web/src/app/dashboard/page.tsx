@@ -252,7 +252,7 @@ export default function DashboardPage() {
             <Link href="/" className="db-nav-link">Keşfet</Link>
           </div>
           <div style={{ marginLeft: "auto" }}>
-            <div style={{ width: 28, height: 28, borderRadius: "50%", background: "#1E2535", border: "1px solid rgba(255,255,255,.08)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 600, color: "#3F4B5C", cursor: "pointer" }}>U</div>
+            <div style={{ width: 28, height: 28, borderRadius: "50%", background: "#1E2535", border: "1px solid rgba(255,255,255,.08)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 600, color: "#3F4B5C", cursor: "pointer" }} onClick={() => router.push("/profile")}>U</div>
           </div>
         </nav>
 
@@ -338,7 +338,7 @@ export default function DashboardPage() {
                       const score = scan.confidence_score;
                       const dateStr = new Date(scan.created_at).toLocaleDateString("tr-TR", { day: "numeric", month: "short", year: "numeric" });
                       return (
-                        <div key={scan.id} className="db-scan-row" onClick={() => router.push(`/`)}>
+                        <div key={scan.id} className="db-scan-row" onClick={() => router.push(`/scan/${scan.id}`)}>
                           {/* Mode icon */}
                           <div style={{ width: 32, height: 32, borderRadius: 8, background: "#080B14", border: "1px solid rgba(255,255,255,.05)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "#3F4B5C" }}>
                             <cfg.Icon size={14} />
