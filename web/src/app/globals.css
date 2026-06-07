@@ -531,3 +531,24 @@
   border:1px solid var(--border-mid); background:var(--bg-elevated);
   color:var(--t3); font-size:12px; font-weight:600; transition:color .15s; }
 .vn-reset-btn:hover { color:var(--t2); }
+/* ── Venorly Report Display v3 (vr-) ── */
+.vr-card { background:rgba(17,12,29,.92); border:1px solid rgba(255,255,255,.06); border-radius:12px; transition:transform .2s ease,border-color .2s ease; }
+.vr-card:hover { transform:translateY(-2px); border-color:rgba(255,255,255,.10); }
+.vr-card-flat:hover { transform:none; }
+.vr-eye { display:block; font-size:11px; font-weight:500; text-transform:uppercase; letter-spacing:.1em; color:rgba(167,139,250,.8); margin-bottom:10px; }
+.vr-pill { display:inline-flex; align-items:center; gap:3px; padding:2px 8px; border-radius:100px; font-size:10px; font-weight:500; white-space:nowrap; line-height:1.5; }
+.vr-p-vi { background:rgba(109,40,217,.14); color:rgba(167,139,250,.9); border:1px solid rgba(109,40,217,.24); }
+.vr-p-em { background:rgba(16,185,129,.10); color:#34D399; border:1px solid rgba(16,185,129,.20); }
+.vr-p-am { background:rgba(245,158,11,.10); color:#FCD34D; border:1px solid rgba(245,158,11,.20); }
+.vr-p-ro { background:rgba(225,29,72,.10);  color:#FB7185; border:1px solid rgba(225,29,72,.20); }
+.vr-p-gr { background:rgba(255,255,255,.05);color:rgba(255,255,255,.3); border:1px solid rgba(255,255,255,.08); }
+.vr-t-em { background:linear-gradient(135deg,#10B981,#059669,#6EE7B7); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+.vr-t-am { background:linear-gradient(135deg,#FBBF24,#F59E0B,#D97706); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+.vr-t-ro { background:linear-gradient(135deg,#FB7185,#E11D48,#BE123C); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+.vr-reveal { opacity:0; transform:translateY(12px); transition:opacity .5s ease,transform .5s ease; }
+.vr-reveal.in { opacity:1; transform:translateY(0); }
+.vr-prog-track { height:3px; border-radius:2px; background:rgba(255,255,255,.06); flex:1; overflow:hidden; }
+.vr-prog-fill  { height:100%; border-radius:2px; transition:width 1.2s cubic-bezier(.4,0,.2,1); }
+.vr-tip-wrap { position:relative; }
+.vr-tip-box { display:none; position:absolute; z-index:60; bottom:calc(100% + 8px); left:50%; transform:translateX(-50%); background:rgba(17,12,29,.97); border:1px solid rgba(109,40,217,.2); backdrop-filter:blur(16px); border-radius:10px; padding:11px 13px; font-size:12px; color:rgba(156,163,175,1); line-height:1.5; width:220px; white-space:normal; pointer-events:none; }
+.vr-tip-wrap:hover .vr-tip-box { display:block; }
