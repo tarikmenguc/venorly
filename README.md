@@ -1,210 +1,122 @@
-# 🔍 Venorly
+# 🔍 Venorly: Model-First Agentic RAG System
 
-**Model-First Agentic RAG** — Trend AI modellerinden kanıtlanmış Micro-SaaS fırsatları bulan akıllı agent.
+**Venorly**, modern AI modellerini (HuggingFace, Replicate, fal.ai) ve pazar verilerini (ProductHunt, TrustMRR) kullanarak kanıtlanmış **Micro-SaaS boşluklarını (White-Space)** tespit eden otonom bir yapay zeka ajanıdır. 
 
-> "Hangi yeni AI modeli, kullanılmayan bir boşlukta para kazandırır?"
+Sistem, basit bir LLM wrapper'ından ziyade; **LangGraph tabanlı State Machine**, **Hybrid Retrieval (ChromaDB + Web)**, **Multi-Shot Generation** ve **Ensemble LLM Evaluation** gibi ileri seviye AI Engineering konseptlerini barındırır.
 
----
-
-## 🎯 Ne Yapıyor?
-
-```
-📡 Veri Toplama
-   Replicate / HuggingFace / fal.ai → Trend AI modeller
-   TrustMRR + ProductHunt → Para kazanan startup'lar
-        ↓
-🔍 Rakip Analizi
-   Tavily (G2, Reddit) → Rakip şikayetleri
-   Play Store → Gerçek kullanıcı yorumları (1-2 ⭐)
-        ↓
-🤖 LangGraph Agent (8 Node)
-   Modelleri bul → Pazarı eşle → Şikayetleri kümeleme → Fırsat raporu üret
-        ↓
-💡 Çıktı: Somut Micro-SaaS fikri + pazar kanıtı + boşluk analizi
-```
-
-### Örnek Çıktı
-```
-🔥 NİŞ FIRSAT: Restoran Sesli Menü Oluşturma
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📦 Model: Kokoro-82M (text-to-speech) — 9.8M indirme
-🎯 Niş: Restoran ve yeme-içme sektörü
-
-💰 Pazar Mantığı:
-   Origami.chat ve Straion gibi uygulamalar aylık abonelik alıyor.
-
-❌ Rakip Boşlukları:
-   - Uygulama hataları ve sorunları
-   - Kullanıcı dostu olmayan arayüz
-   - Şeffaflık eksikliği
-
-💡 Fırsat: Kokoro-82M ile restoranlar için sesli menü SaaS — $29-49/ay
-🔗 https://huggingface.co/hexgrad/Kokoro-82M
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-```
+> "Hangi yeni AI modeli, kullanılmayan bir pazar boşluğunda para kazandırır?"
 
 ---
 
-## 🏗️ Mimari
+## 🧠 Core AI Architecture (Agentic RAG)
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                  MODEL KATMANI (Faz 1)                   │
-│  scrapers/huggingface.py  → HuggingFace Hub SDK          │
-│  scrapers/replicate.py    → Replicate API + HTML          │
-│  scrapers/fal.py          → fal.ai HTML parse             │
-└──────────────────────────┬──────────────────────────────┘
-                           │ JSON → ingestion/ingest.py
-                           ▼ ChromaDB: "ai_models" (166 model)
-┌─────────────────────────────────────────────────────────┐
-│                  PAZAR KATMANI (Faz 1)                    │
-│  scrapers/trustmrr.py     → BeautifulSoup scraping        │
-│  scrapers/producthunt.py  → GraphQL API                   │
-└──────────────────────────┬──────────────────────────────┘
-                           │ JSON → ingestion/ingest.py
-                           ▼ ChromaDB: "startup_apps" (96 app)
-┌─────────────────────────────────────────────────────────┐
-│              RAKİP ANALİZİ (Faz 2)                       │
-│  scrapers/competitor_research.py → Tavily web arama       │
-│  LLM kümeleme → şikayet kategorileri                      │
-└──────────────────────────┬──────────────────────────────┘
-                           ▼
-┌─────────────────────────────────────────────────────────┐
-│              STORE YORUMLARI (Faz 3)                      │
-│  scrapers/store_reviews.py → Play Store 1-2 ⭐ yorumlar   │
-│  LLM kümeleme → kullanıcı acıları                         │
-└──────────────────────────┬──────────────────────────────┘
-                           ▼
-┌─────────────────────────────────────────────────────────┐
-│             AGENT (LangGraph — 8 Node)                    │
-│  agent/idea_agent.py                                      │
-│  LLM: Groq llama-3.3-70b-versatile                        │
-│  Monitoring: LangSmith                                    │
-└──────────────────────────┬──────────────────────────────┘
-                           ▼
-┌─────────────────────────────────────────────────────────┐
-│                  UI (Streamlit)                            │
-│  app.py — Keşfet modu + Kategorili arama + Dashboard      │
-└─────────────────────────────────────────────────────────┘
-```
+Sistem, LangGraph kullanılarak bir *StateGraph* olarak tasarlanmıştır. Kullanıcıdan gelen "video generation", "voice ai" gibi tek kelimelik ham girdiler, otonom bir araştırma zincirinden geçerek iş modeline dönüşür.
 
-### 8-Node Agent Akışı
+### 1. LangGraph Pipeline (Node Flow)
 
-```
-fetch_trending_models → match_to_market → scrape_competitor_reviews → cluster_complaints
-    → find_store_app → scrape_store_reviews → cluster_store_problems → generate_opportunity
+1. **`expand_query_node`:** Kullanıcının ham girdisini 4 farklı arama vektörüne (Market, Competitor, Pain Point, Tech) dönüştürür.
+2. **`fetch_market_data_node`:** *Tavily Advanced Search* ile seçilen nişin TAM/SAM (Toplam Adreslenebilir Pazar) verilerini ve sektörel raporlarını çeker.
+3. **`fetch_trending_models_node`:** *Hybrid Retrieval* mekanizmasıyla (önce ChromaDB, fallback olarak Web) seçilen alandaki yükselen açık kaynak veya API tabanlı modelleri getirir.
+4. **`match_to_market_node`:** Aynı alanda halihazırda para kazanan SaaS uygulamalarını ve Google Trends (SEO) verilerini toplar.
+5. **`scrape_competitor_reviews_node`:** Rakiplerin Reddit, G2 ve Trustpilot üzerindeki 1-2 yıldızlı şikayetlerini ve "acı noktalarını" çeker.
+6. **`cluster_complaints_node`:** Dağınık şikayet verisini LLM ile kümeleyerek (Clustering) pazardaki ilk 5 yapısal sorunu çıkarır.
+7. **`generate_opportunity_node` (Multi-Shot & Ensemble):** Final karar ve rapor üretimi.
+
+### 2. İleri Seviye LLM Teknikleri
+
+Teknik mülakatlar ve mimari analiz için projedeki kritik AI örüntüleri:
+
+* **Hybrid Retrieval (`lib/retrieval.py`):** Kaynakları tararken önce yerel Vektör Veritabanına (ChromaDB) başvurur. Eğer yeterli Confidence/K-değeri sağlanamazsa, otonom olarak Tavily Web Search'e düşer (Fallback) ve sonuçları birleştirir.
+* **Multi-Shot Divergence & Convergence (`generate_opportunity_node`):**
+  * *Divergence (Isı=0.9):* Toplanan verilere dayanarak LLM önce 3 farklı, yaratıcı Micro-SaaS fikri üretir.
+  * *Convergence (Isı=0.2):* LLM analitik bir persona ile bu 3 fikri LTV, CAC ve pazar çekiciliği açısından puanlar ve tek bir kazanan seçer.
+* **Ensemble Decision Making (MoE benzeri):** Seçilen fikir için Groq (LLaMA 3.3) "Go" (Yatırım Yap) kararı verirse, sistem otomatik olarak **Google Gemini** modelini hakem olarak çağırır. İki model de "Go" derse fikir onaylanır. Çelişki varsa karar "Hold"a düşürülür (Hallucination Mitigation).
+* **Structured Output Enforcement:** Tüm ajan çıktıları Pydantic şemaları ile doğrulanıp katı bir JSON yapısında (FeasibilityReport) dönmesi sağlanır.
+
+---
+
+## 🏗️ Sistem Mimarisi & Stack
+
+Proje, production-ready bir Microservice mimarisiyle kurgulanmıştır.
+
+```text
+┌────────────────────────────────┐         ┌────────────────────────────────┐
+│        FRONTEND (Vercel)       │         │     VERİTABANI & AUTH          │
+│                                │         │                                │
+│ - Next.js 16 (React 19)        │ ◄─────► │ - Supabase (PostgreSQL)        │
+│ - Tailwind CSS v4 & Framer M.  │         │ - Clerk (Kimlik Doğrulama)     │
+│ - Stripe (Ödeme Altyapısı)     │         │                                │
+└───────────────┬────────────────┘         └────────────────┬───────────────┘
+                │                                           │
+                ▼                                           ▼
+┌───────────────────────────────────────────────────────────────────────────┐
+│                          VPS / SUNUCU (Docker)                            │
+│                                                                           │
+│  ┌───────────────────────────┐         ┌───────────────────────────────┐  │
+│  │       BACKEND API         │         │         SCHEDULER             │  │
+│  │ - FastAPI (Python)        │         │ - Data Ingestion (Cron)       │  │
+│  │ - LangGraph Agent State   │         │ - Pazar / Model Scraping      │  │
+│  │ - PDF/PPTX/HTML Export    │         │ - Email Alert Servisi         │  │
+│  └────────────┬──────────────┘         └───────────────────────────────┘  │
+│               │                                                           │
+│               ▼                                                           │
+│  ┌───────────────────────────┐         ┌───────────────────────────────┐  │
+│  │    LLM & SEARCH LAYER     │         │        VECTOR DB LAYER        │  │
+│  │ - Groq (LLaMA 3.3 70B)    │ ◄─────► │ - ChromaDB                    │  │
+│  │ - Gemini (Ensemble Check) │         │ - MiniLM Embedding            │  │
+│  │ - Tavily (Web Search)     │         │                               │  │
+│  └───────────────────────────┘         └───────────────────────────────┘  │
+└───────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## ⚡ Hızlı Başlangıç
+## 📁 Proje Klasör Yapısı
+
+* `agent/idea_agent.py` : LangGraph StateGraph düğümleri, RAG pipeline ve Ensemble LLM mantığı.
+* `lib/retrieval.py` : ChromaDB ve Tavily arasında Hybrid Retrieval fallback katmanı.
+* `scrapers/` : HuggingFace, Play Store, TrustMRR, Reddit gibi platformlardan periyodik veri toplayan scriptler.
+* `api.py` : FastAPI tabanlı sunucu. Frontend'in ajanı tetiklediği ve Rapor/PDF/Pitch-Deck çıktılarının alındığı API Gateway.
+* `scheduler.py` : Veritabanını güncel tutmak için çalışan asenkron arka plan görevleri.
+* `web/` : Kullanıcıların araştırmalarını görselleştirdikleri Next.js dashboard arayüzü.
+
+---
+
+## ⚡ Kurulum (Local Development)
+
+Sistemi baştan uca yerel ortamınızda test etmek için:
+
+### 1. Backend (AI Ajanı & API)
+Backend, Docker ile izole olarak çalıştırılır.
 
 ```bash
-# 1. Repo'yu klonla
 git clone https://github.com/tarikmenguc/Startup_Idea_Finder.git
 cd Startup_Idea_Finder
 
-# 2. Virtual environment
-python -m venv venv
-venv\Scripts\activate        # Windows
-# source venv/bin/activate   # Linux/Mac
+# Çevresel değişkenleri ayarlayın (Groq, Tavily, Gemini, Supabase keyleri)
+cp .env.example .env
 
-# 3. Bağımlılıkları kur
-pip install -r requirements.txt
-
-# 4. API key'leri ayarla
-copy .env.example .env
-# .env dosyasını aç ve key'leri doldur
-
-# 5. Veri çek + ChromaDB yükle (tek komut)
-python run_all.py
-
-# 6. UI başlat
-streamlit run app.py
+# Docker compose ile API (FastAPI) ve Scheduler'ı başlatın
+docker compose up --build -d
 ```
+API dökümantasyonu ve LangGraph uç noktaları `http://localhost:8000/docs` adresinde aktif olacaktır.
 
-### Gerekli API Key'ler
-
-| Key | Nereden? | Ücretsiz? |
-|---|---|---|
-| `GROQ_API_KEY` | [console.groq.com](https://console.groq.com) | ✅ Evet |
-| `PRODUCTHUNT_API_KEY` | [producthunt.com/v2/oauth](https://www.producthunt.com/v2/oauth/applications) | ✅ Evet |
-| `TAVILY_API_KEY` | [tavily.com](https://tavily.com) | ✅ 1.000 istek/ay |
-| `LANGSMITH_API_KEY` | [smith.langchain.com](https://smith.langchain.com) | ✅ Opsiyonel |
-
----
-
-## 📁 Proje Yapısı
-
+### 2. Frontend (Next.js Dashboard)
+```bash
+cd web
+cp .env.example .env.local
+npm install
+npm run dev
 ```
-Startup_Idea_Finder/
-├── agent/
-│   └── idea_agent.py         # LangGraph 8-node agent
-├── scrapers/
-│   ├── huggingface.py        # HuggingFace Hub SDK
-│   ├── replicate.py          # Replicate API + HTML scraping
-│   ├── fal.py                # fal.ai HTML parse
-│   ├── trustmrr.py           # TrustMRR BeautifulSoup
-│   ├── producthunt.py        # ProductHunt GraphQL
-│   ├── competitor_research.py # Tavily web araması
-│   └── store_reviews.py      # Play Store yorumları
-├── ingestion/
-│   └── ingest.py             # JSON → ChromaDB pipeline
-├── app.py                    # Streamlit UI
-├── run_all.py                # Tam pipeline runner
-├── scheduler.py              # Günlük otomatik güncelleme
-├── deep_report.py            # Teknik dokümantasyon
-├── requirements.txt
-├── .env.example
-└── README.md
-```
+Arayüz `http://localhost:3000` adresinde ayağa kalkacaktır.
 
 ---
 
-## 🛠️ Teknoloji Stack
+## 🎯 Neden Bu Mimari? (Design Decisions)
 
-| Kategori | Araç |
-|---|---|
-| **Model Scraping** | HuggingFace Hub SDK, Replicate API, fal.ai |
-| **Pazar Verisi** | TrustMRR (BeautifulSoup), ProductHunt (GraphQL) |
-| **Rakip Analizi** | Tavily API (G2, Reddit, Capterra) |
-| **Store Reviews** | google-play-scraper |
-| **Vektör DB** | ChromaDB (2 koleksiyon) |
-| **Embedding** | paraphrase-multilingual-MiniLM-L12-v2 (yerel) |
-| **LLM** | Groq — llama-3.3-70b-versatile |
-| **Agent** | LangGraph StateGraph |
-| **UI** | Streamlit |
-| **Monitoring** | LangSmith |
-
----
-
-## 📊 Faz Planı
-
-| Faz | Kapsam | Durum |
-|---|---|---|
-| **Faz 1** | 5 Scraper + ChromaDB + LangGraph Agent + Streamlit UI | ✅ Tamamlandı |
-| **Faz 2** | Tavily rakip araması + LLM şikayet kümeleme | ✅ Tamamlandı |
-| **Faz 3** | Play Store yorum çekme + LLM kullanıcı acısı analizi | ✅ Tamamlandı |
-
----
-
-## 🧠 Agentic RAG Öğrenme Projesi
-
-Bu proje Agentic RAG kavramlarını pratikte uygulamak için tasarlanmıştır:
-
-| Kavram | Bu Projede |
-|---|---|
-| **Retrieval** | 2 ChromaDB koleksiyonundan cross-retrieval |
-| **Agentic** | LangGraph StateGraph ile 8 adımlı karar mekanizması |
-| **Tool Use** | Scraper, Tavily, Play Store → agent araçları |
-| **Multi-step** | Bul → Analiz et → Kümeleme → Raporla |
-| **Structured Output** | LLM, Markdown formatında yapılandırılmış rapor üretir |
-
-**Klasik RAG:** Soru → 1 koleksiyon ara → LLM cevap ver  
-**Agentic RAG (Bu Proje):** Model bul → Pazar ara → Rakip analiz → Store yorumları → Kümeleme → Rapor
-
----
-
-Detaylı teknik plan: [PROJECT_PLAN.md](./PROJECT_PLAN.md)  
-Adım adım inşa rehberi: [HOW_TO_BUILD.md](./HOW_TO_BUILD.md)  
-Teknik dokümantasyon: [deep_report.py](./deep_report.py)
+1. **Neden Sadece LLM Wrapper Değil de LangGraph?**  
+   Micro-SaaS araştırması doğası gereği ardışıktır. "Rakipleri bulmadan, şikayetlerini arayamazsın. Şikayetleri kümelemeden fırsat çıkaramazsın." LangGraph'ın state machine yapısı, LLM'in halüsinasyon görmesini engeller ve her düğümde kontrol mekanizmaları (ör. Reddit sinyal onayı) kurulmasını sağlar.
+2. **Neden ChromaDB + Tavily Fallback?**  
+   Geleneksel RAG, statik veride harikadır ancak pazar koşulları (yeni çıkan AI modelleri) her gün değişir. Sistem bilindik modelleri ChromaDB'den (Düşük gecikme/maliyet) alırken, LLM yeni/bilinmeyen bir teknoloji gördüğünde anında Tavily ile internete açılır (High freshness).
+3. **Neden Multi-Shot Generation?**  
+   Tek seferde fikir üretmek, LLM'i "ilk bulduğuna atlamaya" zorlar. Sistem önce sıcaklığı (temperature) yüksek tutarak geniş yelpazede fikirler üretir, ardından sıcaklığı düşürerek analitik bir persona ile en rasyonel olanı seçer. Bu, üretim kalitesini dramatik ölçüde artırır.
